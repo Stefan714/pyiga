@@ -98,6 +98,8 @@ Integration
 .. autofunction:: integrate
 
 """
+import warnings
+
 import numpy as np
 import matplotlib.pyplot as plt
 import scipy
@@ -1731,6 +1733,58 @@ class Multipatch:
             print("Prolongation took "+str(time.time()-t)+" seconds")
             return P
 
+    def get_crosspoints(self):
+        """Get crosspoints in the multipatch object. A crosspoint is a corner where more than two patches meet and is not a Dirichlet dof.
+
+        Note:
+            Works only for 2D at the moment
+
+        """
+        cp = np.array([])
+
+        corners = list(zip(np.arange(0,self.dim), np.zeros((self.dim,))))
+
+        totalboundary = np.array([])
+        for bidx in self.mesh.outer_boundaries.keys():
+            totalboundary = np.union1d(totalboundary, self.get_boundary_dofs(bidx))
+
+        for p in range(len(self.mesh.patches)):
+            (kvs, _), _ = self.mesh.patches[p]
+            for axis in range(2**self.dim-1):
+                tmp = bin(axis)[2:]
+                tmp = (self.dim - len(tmp)) * '0' + tmp
+                tmp2 = np.array(tuple(tmp), dtype=int)
+                vertex = list(map(lambda tp, n: (tp[0],int(tp[1]+n)), corners, tmp2))
+                loc_idx = boundary_dofs(kvs, vertex, ravel=True) # local vertex
+
+                glob_idx, _ = self._get_idx(loc_idx, p)
+
+                if glob_idx not in totalboundary:
+                    cp = np.union1d(cp, glob_idx)
+
+        print(cp)
+
+    def get_boundary_dofs(self, bidx):
+        """Computes the global dof indices of the boundary specified by 'bidx'
+
+        The integer `bidx` indicates the index of the boundary.
+
+        Returns:
+            A numpy array `bnd_idx` that contains the global dof indices of the boundary 'bidx'.
+        """
+        bnd_idx = np.array([])
+        for p, bdspec in self.mesh.outer_boundaries[bidx]:
+            (kvs, _), _ = self.mesh.patches[p]
+            bdofs = boundary_dofs(kvs, ((bdspec // 2, bdspec % 2),), ravel=True)
+
+            idx, _ = self._get_idx(bdofs, p)
+            #B = self.Basis[bdofs + self.N_ofs[p]]
+            #feasible = (B.indptr[1:] - B.indptr[:-1]) == 1
+            #idx = B[np.arange(len(bdofs))[feasible]] @ np.arange(self.numdofs)
+            bnd_idx = np.union1d(bnd_idx, idx)
+
+        return bnd_idx
+
     def compute_dirichlet_bcs(self, b_data):
         """Performs the same operation as the global function
         :func:`compute_dirichlet_bcs`, but for a multipatch problem.
@@ -1743,18 +1797,31 @@ class Multipatch:
             :class:`RestrictedLinearSystem`.
         """
         bcs = []
-        p2g = dict()        # cache the patch-to-global indices for efficiency
         for bidx, g in b_data.items():
             for p, bdspec in self.mesh.outer_boundaries[bidx]:
                 (kvs, geo), _ = self.mesh.patches[p]
                 bc = compute_dirichlet_bc(kvs, geo, ((bdspec//2,bdspec%2),), g)# + self.N_ofs[p]
-                B = self.Basis[bc[0] + self.N_ofs[p]]       
-                feasible = (B.indptr[1:]-B.indptr[:-1])==1
+                idx, feasible = self._get_idx(bc[0], p)
+                #B = self.Basis[bc[0] + self.N_ofs[p]]
+                #feasible = (B.indptr[1:]-B.indptr[:-1])==1
                 #print(B[np.arange(len(bc[0]))[feasible]].shape)
                 #print(self.numdofs)
-                idx = B[np.arange(len(bc[0]))[feasible]]@np.arange(self.numdofs)
+                #idx = B[np.arange(len(bc[0]))[feasible]]@np.arange(self.numdofs)
                 bcs.append((idx.astype(int), bc[1][feasible]))
         return combine_bcs(bcs)
+
+    def _get_idx(self, ids, p):
+        """Helper to get global dof indices from the local indices 'ids' and patch 'p'.
+
+        Returns:
+            A pair '(idx, feasible)' with global indices  'idx' and an array to indicate whether the entries in idx can be considered feasible.
+        """
+        B = self.Basis[ids + self.N_ofs[p]]
+        feasible = (B.indptr[1:] - B.indptr[:-1]) == 1
+        idx = B[np.arange(len(ids))[feasible]] @ np.arange(self.numdofs)
+
+        return idx, feasible
+
     
     def plot(self, u, cmap = plt.cm.jet, cbar=True, axis='scaled', **kwargs):
         assert self.dim==2, 'visualization only possible for 2D.'

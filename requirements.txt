@@ -2,3 +2,4 @@ Cython
 numpy
 nbsphinx
 ipykernel
+scikit-sparse
