@@ -1739,12 +1739,7 @@ class Multipatch:
             return P
 
     def get_crosspoints(self):
-        """Get crosspoints in the multipatch object. A crosspoint is a corner where more than two patches meet and is not a Dirichlet dof.
-
-        Note:
-            Works only for 2D at the moment
-
-        """
+        """Get crosspoints in the multipatch object. A crosspoint is a corner where more than two patches meet and is not a Dirichlet dof."""
         cp = np.array([])
 
         corners = list(zip(np.arange(0,self.dim), np.zeros((self.dim,))))
@@ -1755,11 +1750,11 @@ class Multipatch:
 
         for p in range(len(self.mesh.patches)):
             (kvs, _), _ = self.mesh.patches[p]
-            for axis in range(2**self.dim-1):
-                tmp = bin(axis)[2:]
-                tmp = (self.dim - len(tmp)) * '0' + tmp
-                tmp2 = np.array(tuple(tmp), dtype=int)
-                vertex = list(map(lambda tp, n: (tp[0],int(tp[1]+n)), corners, tmp2))
+            for side in range(2**self.dim-1):
+                sideAsbin = bin(side)[2:]
+                sideAsbin = (self.dim - len(sideAsbin)) * '0' + sideAsbin
+                bndside = np.array(tuple(sideAsbin), dtype=int)
+                vertex = list(map(lambda tp, n: (tp[0],int(tp[1]+n)), corners, bndside))
                 loc_idx = boundary_dofs(kvs, vertex, ravel=True) # local vertex
 
                 glob_idx, _ = self._get_idx(loc_idx, p)
@@ -1767,7 +1762,7 @@ class Multipatch:
                 if glob_idx not in totalboundary:
                     cp = np.union1d(cp, glob_idx)
 
-        print(cp)
+        return cp
 
     def get_boundary_dofs(self, bidx):
         """Computes the global dof indices of the boundary specified by 'bidx'
