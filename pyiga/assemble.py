@@ -1750,7 +1750,7 @@ class Multipatch:
 
         for p in range(len(self.mesh.patches)):
             (kvs, _), _ = self.mesh.patches[p]
-            for side in range(2**self.dim-1):
+            for side in range(2**self.dim):
                 sideAsbin = bin(side)[2:]
                 sideAsbin = (self.dim - len(sideAsbin)) * '0' + sideAsbin
                 bndside = np.array(tuple(sideAsbin), dtype=int)
