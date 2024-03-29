@@ -419,15 +419,29 @@ def slice_indices(axis, sides, shape, ravel=False, swap=None, flip=None):
         multi_indices = np.ravel_multi_index(multi_indices.T, shape)
     return multi_indices
 
-def boundary_dofs(kvs, bdspec=None, ravel=False, swap=None, flip=None):
+def boundary_dofs(kvs, bdspec=None, ravel=False, swap=None, flip=None, nlayers=1):
     """Indices of the dofs which lie on the given boundary of the tensor
     product basis `kvs`. Output format is as for :func:`slice_indices`.
     """
     if bdspec:
         bdspec = bspline._parse_bdspec(bdspec, len(kvs))
-        axis, sides = tuple(ax for ax, _ in bdspec), tuple(-idx for _, idx in bdspec)
+        axis, sides = tuple(ax for ax, _ in bdspec), list(-idx for _, idx in bdspec)
+
+        sides = [sides,]*nlayers
+        for l in range(1, nlayers):
+            side = list(sides[l])
+            for i, ax in enumerate(axis):
+                #print(sides)
+                if side[i] < 0:
+                    side[i] -= l
+                else:
+                    side[i] += l
+            sides[l] = side
+
         N = tuple(kv.numdofs for kv in kvs)
-        return slice_indices(axis, sides, N, ravel=ravel, swap=swap, flip=flip)
+        indices = np.concatenate([slice_indices(axis, side, N, ravel=ravel, swap=swap, flip=flip) for side in sides])
+        #return slice_indices(axis, sides, N, ravel=ravel, swap=swap, flip=flip)
+        return indices
     else:
         if ravel==True:
             return np.unique(np.concatenate([boundary_dofs(kvs, [(a,b)], ravel=True) for a,b in itertools.product(*2*(range(2),))]))
@@ -1330,8 +1344,11 @@ class Multipatch:
                 
             #print(self.intfs)
             C=[self.join_boundaries(p1, (int_to_bdspec(bd1),), s1 , p2, (int_to_bdspec(bd2),), s2, flip) for ((p1,bd1,s1),(p2,bd2,s2), flip) in self.intfs.copy()]
+
+            C1=[self.C1_coupling(p1, (int_to_bdspec(bd1),), p2, (int_to_bdspec(bd2),), flip) for ((p1,bd1,s1),(p2,bd2,s2), flip) in self.intfs.copy()]
             if len(C)!=0:
                 self.Constr = scipy.sparse.vstack(C)
+                self.Constr1 = scipy.sparse.vstack(C1)
             self.finalize()
 
     @property
@@ -1552,61 +1569,75 @@ class Multipatch:
 #             symmetric=False, format='csr', layout='blocked', **kwargs):
         
     
-#     def C1_coupling(self, p1, bdspec1, p2, bdspec2, flip=None):
+    def C1_coupling(self, p1, bdspec1, p2, bdspec2, flip=None):
         
-#         (ax1, sd1), (ax2, sd2) = bdspec1, bdspec2
-#         ((kvs1, geo1),_), ((kvs2, geo2),_) = self.mesh.patches[p1], self.mesh.patches[p2]
-#         sup1, sup2 = geo1.support, geo2.support
-#         dim=len(kvs1)
-#         if flip is None:
-#             flip=(dim-1)*(False,)
+        (ax1, sd1), (ax2, sd2) = bdspec1[0], bdspec2[0]
+        ((kvs1, geo1),_), ((kvs2, geo2),_) = self.mesh.patches[p1], self.mesh.patches[p2]
+        sup1, sup2 = geo1.support, geo2.support
+        dim=len(kvs1)
+        if flip is None:
+            flip=(dim-1)*(False,)
  
-#         bkv1, bkv2 = Ass.boundary_kv(kvs1, bdspec1), Ass.boundary_kv(kvs2, bdspec2)
-#         dofs1, dofs2 = Ass.boundary_dofs(kvs1, bdspec1, ravel = True, k=1), Ass.boundary_dofs(kvs2, bdspec2, ravel = True, flip=flip, k=1)
-#         G = tuple(kv.greville() for kv in kvs2)
-#         G2 = G[:ax2] + (np.array([sup2[ax2][0] if sd2==0 else sup2[ax2][-1]]),) + G[ax2+1:]
-#         G1 = G[:ax2] + G[ax2+1:]
-#         G1 = G1[:ax1] + (np.array([sup1[ax1][0] if sd1==0 else sup1[ax1][-1]]),) + G1[ax1:] #still need to add flip
+        #bkv1, bkv2 = boundary_kv(kvs1, bdspec1), boundary_kv(kvs2, bdspec2)
+        dofs1, dofs2 = boundary_dofs(kvs1, bdspec1, ravel = True, nlayers=2), boundary_dofs(kvs2, bdspec2, ravel = True, flip=flip, nlayers=2)
+        G = tuple(kv.greville() for kv in kvs2)
+        G2 = G[:ax2] + (np.array([sup2[ax2][0] if sd2==0 else sup2[ax2][-1]]),) + G[ax2+1:]
+        G1 = G[:ax2] + G[ax2+1:]
+        G1 = G1[:ax1] + (np.array([sup1[ax1][0] if sd1==0 else sup1[ax1][-1]]),) + G1[ax1:] #still need to add flip
 
-#         M=tuple(len(g) for g in G2)
-#         m=np.prod(M)
-#         n1,n2=len(dofs1), len(dofs2)
+        M=tuple(len(g) for g in G2)
+        m=np.prod(M)
+        n1, n2=len(dofs1), len(dofs2)
         
-#         C1, D1 = bspline.collocation_derivs_tp(kvs1, G1, derivs=1)
-#         C2, D2 = bspline.collocation_derivs_tp(kvs2, G2, derivs=1)
-    
-#         C1, C2 = C1[0].tocsr()[:,dofs1], C2[0].tocsr()[:,dofs2]
-#         for i in range(dim):
-#             D1[i], D2[i] = D1[i].tocsr()[:,dofs1], D2[i].tocsr()[:,dofs2]
-#         N2=geo2.boundary(bdspec2).grid_outer_normal(G2[:ax2]+G2[ax2+1:]).reshape(m,dim)
+        C1, D1 = bspline.collocation_derivs_tp(kvs1, G1, derivs=1)
+        C2, D2 = bspline.collocation_derivs_tp(kvs2, G2, derivs=1)
 
-#         J1=geo1.grid_jacobian(G1).reshape(m,dim,dim)
-#         J2=geo2.grid_jacobian(G2).reshape(m,dim,dim)
-        
-#         invJ1=np.array([inv(jac) for jac in J1[:]])
-#         invJ2=np.array([inv(jac) for jac in J2[:]])
+        # first and second row of basis functions
+        #dofs10, dofs11 = dofs1[:int(len(dofs1)/2)], dofs1[int(len(dofs1)/2):]
+        dofs20, dofs21 = dofs2[:int(len(dofs2)/2)], dofs2[int(len(dofs2)/2):]
 
-#         NC1=scipy.sparse.csr_matrix((m, n1))
-#         for i in range(dim):
-#             NC1_ = scipy.sparse.csr_matrix((m, n1))
-#             for j in range(dim):
-#                 NC1_ += scipy.sparse.spdiags(invJ1[:,i,j], 0, m, m)*D1[dim-1-j]
-#             NC1 += scipy.sparse.spdiags(N2[:,i], 0, m, m)*NC1_
-            
-#         NC2=scipy.sparse.csr_matrix((m, n2))
-#         for i in range(dim):
-#             NC2_ = scipy.sparse.csr_matrix((m, n2))
-#             for j in range(dim):
-#                 NC2_ += scipy.sparse.spdiags(invJ2[:,i,j], 0, m, m)*D2[dim-1-j]
-#             NC2 += scipy.sparse.spdiags(N2[:,i], 0, m, m)*NC2_
-            
-#         A = scipy.sparse.vstack([C1, NC1])
-#         B = scipy.sparse.vstack([C2, NC2])
-#         P = scipy.sparse.linalg.spsolve(B,A.A)
-#         # prune matrix
-#         P[np.abs(P) < 1e-15] = 0.0
-#         return scipy.sparse.csr_matrix(P) 
-    
+        C1, C2 = C1[0].tocsr()[:,dofs1], C2[0].tocsr()[:,dofs2]
+        for i in range(dim):
+            D1[i], D2[i] = D1[i].tocsr()[:,dofs1], D2[i].tocsr()[:,dofs2]
+        N2=geo2.boundary(bdspec2).grid_outer_normal(G2[:ax2]+G2[ax2+1:]).reshape(m,dim)
+
+        J1=geo1.grid_jacobian(G1).reshape(m,dim,dim)
+        J2=geo2.grid_jacobian(G2).reshape(m,dim,dim)
+
+        invJ1=np.array([np.linalg.inv(jac) for jac in J1[:]])
+        invJ2=np.array([np.linalg.inv(jac) for jac in J2[:]])
+
+        NC1=scipy.sparse.csr_matrix((m, n1))
+        for i in range(dim):
+            NC1_ = scipy.sparse.csr_matrix((m, n1))
+            for j in range(dim):
+                NC1_ += scipy.sparse.spdiags(invJ1[:,i,j], 0, m, m)*D1[dim-1-j]
+            NC1 += scipy.sparse.spdiags(N2[:,i], 0, m, m)*NC1_
+
+        NC2=scipy.sparse.csr_matrix((m, n2))
+        for i in range(dim):
+            NC2_ = scipy.sparse.csr_matrix((m, n2))
+            for j in range(dim):
+                NC2_ += scipy.sparse.spdiags(invJ2[:,i,j], 0, m, m)*D2[dim-1-j]
+            NC2 += scipy.sparse.spdiags(N2[:,i], 0, m, m)*NC2_
+
+        A = scipy.sparse.vstack([C1, NC1])
+        B = scipy.sparse.vstack([C2, NC2])
+        P = -scipy.sparse.linalg.spsolve(B,A.A)
+        # prune matrix
+        P[np.abs(P) < 1e-15] = 0.0
+
+        #return scipy.sparse.csr_matrix(P)
+
+        P = scipy.sparse.coo_matrix(P)
+        # construct constraints for this interface
+        data = np.concatenate([P.data, np.ones(3*len(dofs20))])
+        I = np.concatenate([P.row, np.arange(len(dofs20)), [len(dofs20)+(i%len(dofs20)) for i in range(len(dofs2))]])
+        J = np.concatenate([dofs1[P.col] + self.N_ofs[p1], dofs20 + self.N_ofs[p2], dofs20 + self.N_ofs[p2], dofs21 + self.N_ofs[p2]])
+
+        # self.Constr = scipy.sparse.vstack([self.Constr,scipy.sparse.coo_matrix((data,(I,J)),(len(dofs2), self.numloc_dofs)).tocsr()])
+        return scipy.sparse.coo_matrix((data, (I, J)), (len(dofs2), self.numloc_dofs)).tocsr()
+
 #     def refine(self, patches=None, mult=1, return_prol=False):
 #         if isinstance(patches, dict):
 #             assert max(patches.keys())<self.numpatches and min(patches.keys())>=0, "patch index out of bounds."
@@ -1740,7 +1771,7 @@ class Multipatch:
 
     def get_crosspoints(self):
         """Get crosspoints in the multipatch object. A crosspoint is a corner where more than two patches meet and is not a Dirichlet dof."""
-        cp = np.array([])
+        cp = dict()
 
         corners = list(zip(np.arange(0,self.dim), np.zeros((self.dim,))))
 
@@ -1758,11 +1789,43 @@ class Multipatch:
                 loc_idx = boundary_dofs(kvs, vertex, ravel=True) # local vertex
 
                 glob_idx, _ = self._get_idx(loc_idx, p)
+                glob_idx = int(glob_idx[0])
 
                 if glob_idx not in totalboundary:
-                    cp = np.union1d(cp, glob_idx)
+                    if p not in cp.keys():
+                        cp[p] = []
+
+                    cp[p].append(tuple((loc_idx[0], glob_idx))) # One could also be computed from the other?
+                    #cp = np.union1d(cp, glob_idx)
 
         return cp
+
+#    def get_crosspoints2(self):
+#        """Alternative implementation to the method above. More pythonic but seems to be slightly slower. """
+#        cp = np.array([])
+#
+#        axes = np.arange(0, self.dim)
+#        sides = np.arange(0,2)
+#
+#        test = list(itertools.product(axes, sides))
+#        split = [test[i:i+2] for i in range(0,len(test),2)]
+#
+#        candidates = list(itertools.product(*split))
+#
+#        totalboundary = np.array([])
+#        for bidx in self.mesh.outer_boundaries.keys():
+#            totalboundary = np.union1d(totalboundary, self.get_boundary_dofs(bidx))
+#
+#        for p in range(len(self.mesh.patches)):
+#            (kvs, _), _ = self.mesh.patches[p]
+#            for vertex in candidates:
+#                loc_idx = boundary_dofs(kvs, vertex, ravel=True) # local vertex
+#                glob_idx, _ = self._get_idx(loc_idx, p)
+#
+#                if glob_idx not in totalboundary:
+#                    cp = np.union1d(cp, glob_idx)
+#
+#        return cp
 
     def get_boundary_dofs(self, bidx):
         """Computes the global dof indices of the boundary specified by 'bidx'
