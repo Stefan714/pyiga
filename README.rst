@@ -104,7 +104,7 @@ the unit tests, and the `IPython notebooks`_ to learn more.
 
 
 .. _IPython notebooks: ./notebooks
-.. _Documentation: http://pyiga.readthedocs.io/en/latest/
+.. _Documentation: http://pyiga.readthedocs.io/latest/
 .. _FEniCS: https://fenicsproject.org/
 .. _Anaconda: https://www.anaconda.com/distribution/
 
