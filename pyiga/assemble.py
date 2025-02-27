@@ -1323,6 +1323,7 @@ class Multipatch:
         self.shared_pp = dict(zip([p for p in range(self.mesh.numpatches)],self.mesh.numpatches*[set(),]))
         # a list of interfaces (patch1, boundary dofs1, patch2, boundary dofs2)
         self.intfs = set()
+        self.L_intfs = {}
         self.Constr=scipy.sparse.csr_matrix((0,self.N_ofs[-1]))
         self.global_dir_idx = np.array([])
 
@@ -1336,6 +1337,12 @@ class Multipatch:
             t=time.time()
             C=[self.join_boundaries(p1, (int_to_bdspec(bd1),), s1 , p2, (int_to_bdspec(bd2),), s2, flip) for ((p1,bd1,s1),(p2,bd2,s2), flip) in self.intfs.copy()]
             print('setting up constraints took '+str(time.time()-t)+' seconds.')
+            for (p,b,_),(p2,b2,_),_ in self.intfs:
+                if (p,b) not in self.L_intfs:
+                    self.L_intfs[(p,b)]={(p2,b2)}
+                else:
+                    self.L_intfs[(p,b)].add((p2,b2))
+        
             if len(C)!=0:
                 self.Constr = scipy.sparse.vstack(C)
             self.finalize()
@@ -1467,6 +1474,7 @@ class Multipatch:
             domain_id=set(self.mesh.domains)
             
         if arity==2:
+            args['arity']=2
             A = []
             dofs=[] 
             for d_idx in domain_id:
@@ -1483,6 +1491,7 @@ class Multipatch:
             else:
                 return X.T@scipy.sparse.block_diag(A)@X
         else:
+            args['arity']=1
             F=np.zeros(self.numloc_dofs)
             for d_idx in domain_id:
                 for p in self.mesh.domains[d_idx]:
