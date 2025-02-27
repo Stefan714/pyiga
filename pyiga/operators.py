@@ -11,7 +11,6 @@ try:
 except:
     HAVE_MKL = False
 
-
 class NullOperator(scipy.sparse.linalg.LinearOperator):
     """Null operator of the given shape which always returns zeros. Used as placeholder."""
     def __init__(self, shape, dtype=np.float64):
@@ -238,7 +237,6 @@ class PardisoSolverWrapper(scipy.sparse.linalg.LinearOperator):
         self.solver = None
     def toarray(self):
         return self._matmat(np.eye(self.shape[1]))
-
 
 def make_solver(B, symmetric=False, spd=False):
     """Return a :class:`LinearOperator` that acts as a linear solver for the
