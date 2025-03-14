@@ -1829,7 +1829,8 @@ class Multipatch:
                     self.dir_vals[p]=[vals_]
                 
         for p in self.dir_idx:
-            self.dir_idx[p], lookup = np.unique(self.dir_idx[p], return_index = True)
+            #print(self.dir_idx[p])
+            self.dir_idx[p], lookup = np.unique(np.concatenate(self.dir_idx[p]), return_index = True)
             self.dir_vals[p] = np.concatenate(self.dir_vals[p])[lookup]
             
         self.global_dir_idx = np.concatenate([self.dir_idx[p] + self.N_ofs[p] for p in self.dir_idx])
