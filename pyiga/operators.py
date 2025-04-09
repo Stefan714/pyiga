@@ -56,6 +56,7 @@ class DiagonalOperator(scipy.sparse.linalg.LinearOperator):
         return self
 
 
+
 class KroneckerOperator(scipy.sparse.linalg.LinearOperator):
     """A :class:`LinearOperator` which efficiently implements the
     application of the Kronecker product of the given input operators.

@@ -45,7 +45,8 @@ cpdef object pyx_compute_basis(int m, int n, object Constr, int maxiter):
         if alldDofs.count(i)==0:
             ndDofs[j]=i
             j+=1
-    return Basis[:,ndDofs.base].tocsr()#, Constr
+    #print(Basis)
+    return Basis[:,ndDofs.base]#, Constr
 
 @cython.cdivision(False)
 @cython.boundscheck(True)

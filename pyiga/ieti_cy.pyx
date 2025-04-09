@@ -1,6 +1,8 @@
 # distutils: define_macros=NPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION
 cimport cython
 
+#from algebra_cy cimport pyx_compute_basis
+
 import numpy as np
 cimport numpy as np
 #from libcpp.vector cimport vector
@@ -10,6 +12,9 @@ import time
 import scipy
 from scipy.sparse import coo_matrix, csr_matrix, csc_matrix
 
+#cpdef object pyx_eval_nodal(object B, int[:] corner_dofs):
+    
+    
 @cython.cdivision(False)
 @cython.boundscheck(False)
 @cython.wraparound(False)
