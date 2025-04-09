@@ -6,11 +6,9 @@ import matplotlib as plt
 from pyiga import assemble, adaptive, bspline, vform, geometry, vis, solvers, utils, topology
 #from sksparse.cholmod import cholesky
 from pyiga import utils
-
 ################################################################################
 # Error Estimation
 ################################################################################
-
 def mp_resPois(MP, uh, f=0., a=1., M=(0.,0.), divMaT =0., neu_data={}, **kwargs):
     if isinstance(a,(int,float)):
         a={d:a for d in MP.mesh.domains}
@@ -90,7 +88,10 @@ def mp_resPois2(MP, uh, f=0., a=1., M=(0.,0.), divM = 0., neu_data={}, **kwargs)
         
     n = MP.mesh.numpatches
     indicator = np.zeros(MP.Z_ofs[-1])
-    uh_loc = MP.Basis@uh
+    if len(uh)==MP.numdofs:
+        uh_loc = MP.Basis@uh
+    elif len(uh)==MP.N_ofs[-1]:
+        uh_loc = uh
     uh_per_patch = dict()
     
     #residual contribution, TODO vectorize

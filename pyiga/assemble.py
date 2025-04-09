@@ -113,6 +113,7 @@ from . import bspline
 from . import assemble_tools
 from . import assemblers
 from . import fast_assemble_cy
+from . import assemble_cy
 from . import tensor
 from . import operators
 from . import utils
@@ -1299,7 +1300,7 @@ class Multipatch:
             :meth:`join_boundaries` as often as needed, followed by
             :meth:`finalize`.
     """
-    def __init__(self, M, automatch=False, cython=False):
+    def __init__(self, M, automatch=False):
         """Initialize a multipatch structure."""
         # underlying PatchMesh object describing the geometry
         if isinstance(M, topology.PatchMesh):
@@ -1310,7 +1311,7 @@ class Multipatch:
             print('unknown mesh object.')
             
         self.mesh = M
-        self.cython=cython
+        #self.cython=cython
             
         # number of tensor product dofs per patch
         self.n = [tuple([kv.numdofs for kv in kvs]) for ((kvs,_),_) in self.mesh.patches]
@@ -1319,12 +1320,19 @@ class Multipatch:
         self.Z_ofs = np.concatenate(([0], np.cumsum(self.Z)))
         # offset to the dofs of the i-th patch
         self.N_ofs = np.concatenate(([0], np.cumsum(self.N)))
+
+        self.skeleton_dofs = np.concatenate([boundary_dofs(self.mesh.kvs[p],ravel=1) + self.N_ofs[p] for p in range(self.numpatches)])
+        self.interior_dofs = np.setdiff1d(np.arange(self.N_ofs[-1]),self.skeleton_dofs)
+
+        self.R_skeleton = scipy.sparse.coo_matrix((np.ones(len(self.skeleton_dofs)),(np.arange(len(self.skeleton_dofs)),self.skeleton_dofs)),shape=(len(self.skeleton_dofs),self.N_ofs[-1]))
+        self.R_interior = scipy.sparse.coo_matrix((np.ones(len(self.interior_dofs)),(np.arange(len(self.interior_dofs)),self.interior_dofs)),shape=(len(self.interior_dofs),self.N_ofs[-1]))
         # per patch, a dict of shared indices
         self.shared_pp = dict(zip([p for p in range(self.mesh.numpatches)],self.mesh.numpatches*[set(),]))
         # a list of interfaces (patch1, boundary dofs1, patch2, boundary dofs2)
         self.intfs = set()
         self.L_intfs = {}
-        self.Constr=scipy.sparse.csr_matrix((0,self.N_ofs[-1]))
+        
+        self.B=scipy.sparse.csr_matrix((0,self.N_ofs[-1]))
         self.global_dir_idx = np.array([])
 
         if automatch:
@@ -1339,12 +1347,12 @@ class Multipatch:
             print('setting up constraints took '+str(time.time()-t)+' seconds.')
             for (p,b,_),(p2,b2,_),_ in self.intfs:
                 if (p,b) not in self.L_intfs:
-                    self.L_intfs[(p,b)]={(p2,b2)}
+                    self.L_intfs[(p,b)]=[(p2,b2)]
                 else:
-                    self.L_intfs[(p,b)].add((p2,b2))
+                    self.L_intfs[(p,b)].append((p2,b2))
         
             if len(C)!=0:
-                self.Constr = scipy.sparse.vstack(C)
+                self.B = scipy.sparse.vstack(C)
             self.finalize()
 
     @property
@@ -1427,7 +1435,7 @@ class Multipatch:
 
         #M = scipy.sparse.coo_matrix((np.ones(A.shape[1]),(i,np.arange(A.shape[1]))),2*(A.shape[1],))
         
-        #self.Constr = scipy.sparse.vstack([self.Constr,scipy.sparse.coo_matrix((data,(I,J)),(len(dofs2), self.numloc_dofs)).tocsr()])
+        #self.B = scipy.sparse.vstack([self.B,scipy.sparse.coo_matrix((data,(I,J)),(len(dofs2), self.numloc_dofs)).tocsr()])
         return A.tocsr()
         
     def finalize(self):
@@ -1435,30 +1443,14 @@ class Multipatch:
         :meth:`join_boundaries` or :meth:`join_dofs`, call this function to set
         up the internal data structures.
         """
-        num_shared = [len(self.shared_pp[p]) for p in range(self.numpatches)]
-        # number of local dofs per patch
-        self.M = [n - s for (n, s) in zip(self.N, num_shared)]
-        # local-to-global offset per patch
-        self.M_ofs = np.concatenate(([0], np.cumsum(self.M)))
         t=time.time()
-        if self.cython:
-            self.Basis = algebra_cy.pyx_compute_basis(self.Constr.shape[0], self.Constr.shape[1], self.Constr, maxiter=5)
-        else:
-            self.Basis, _ = algebra.compute_basis(self.Constr, maxiter=5)
+        B = self.B@self.R_skeleton.T
+        self.Basis = algebra_cy.pyx_compute_basis(B.shape[0], B.shape[1], B, maxiter=10)
+        self.Basis = scipy.sparse.hstack([self.R_interior.T, self.R_skeleton.T@self.Basis], format='csc')
         print("Basis setup took "+str(time.time()-t)+" seconds")
-        data, indices, indptr = self.Basis.data, self.Basis.indices, self.Basis.indptr
-        m, n = self.Basis.shape
-        #self.P2G = scipy.sparse.csc_matrix((data[indptr[:-1]],indices[indptr[:-1]],np.arange(n+1)),shape=(m,n)).T
-        X = scipy.sparse.coo_matrix(self.Basis)
-        idx = np.where(np.isclose(X.data,1))
-        X.data, X.row, X.col = X.data[idx], X.row[idx], X.col[idx]
-        self.G2P_idx = X.row
-        D = (X.T@self.Basis).sum(axis=1).A.ravel()
-        self.P2G = scipy.sparse.csr_matrix(scipy.sparse.spdiags(1/D,[0],len(D),len(D))@X.T)
-        self.Basis = scipy.sparse.csr_matrix(self.Basis)
-        #print("Basis setup took "+str(time.time()-t)+" seconds")
-        #self.mesh.sanity_check()
-        #self.sanity_check()
+        self.P2G = assemble_cy.pyx_right_inverse_C0_Basis(self.Basis.indptr, self.Basis.indices, self.Basis.data, *self.Basis.shape).tocsc()
+        
+        self.sanity_check()
         
     def assemble_volume(self, problem, arity=1, domain_id=None, args=None, bfuns=None,
             symmetric=False, format='csr', layout='blocked', decoupled=False, **kwargs):
@@ -1580,11 +1572,6 @@ class Multipatch:
                 N[bdofs] += vals 
             
             return X.T @ N
-            
-    
-#     def assemble_boundary(self, problem, boundary_idx = None, args=None, bfuns=None,
-#             symmetric=False, format='csr', layout='blocked', **kwargs):
-        
     
 #     def C1_coupling(self, p1, bdspec1, p2, bdspec2, flip=None):
         
@@ -1640,44 +1627,6 @@ class Multipatch:
 #         # prune matrix
 #         P[np.abs(P) < 1e-15] = 0.0
 #         return scipy.sparse.csr_matrix(P) 
-    
-#     def refine(self, patches=None, mult=1, return_prol=False):
-#         if isinstance(patches, dict):
-#             assert max(patches.keys())<self.numpatches and min(patches.keys())>=0, "patch index out of bounds."
-#             patches = patches.keys()
-#         elif isinstance(patches, (list, set, np.ndarray)):
-#             assert max(patches)<self.numpatches and min(patches)>=0, "patch index out of bounds."
-#         elif patches==None:
-#             patches = np.arange(self.numpatches)
-#         elif np.isscalar(patches):
-#             patches=(patches,)
-#         else:
-#             assert 0, "unknown input type"
-#         if return_prol:
-#             n=self.numdofs
-#             old_kvs=[kvs for (kvs,_),_ in self.mesh.patches]
-#             old_global_to_patch = [self.global_to_patch(p) for p in range(self.numpatches)]
-            
-#         self.mesh.refine(patches, mult=mult)
-#         self.reset()
-#         #MP = Multipatch(self.mesh, automatch=True, k=self.k)
-        
-#         if return_prol:
-#             m = self.numdofs
-#             P = scipy.sparse.csr_matrix((m, n))
-            
-#             for p in range(self.numpatches):
-#                 if p in patches:
-#                     kvs=old_kvs[p]
-#                     new_kvs=MP.mesh.patches[p][0][0]
-#                     C = bspline.prolongation_tp(kvs, new_kvs)
-#                 else:
-#                     C = scipy.sparse.identity(self.N[p])
-
-#                 P += MP.patch_to_global(p) @ C @ old_global_to_patch[p]
-#             factors = [1/sum([sum(dof[p][1]) for p in dof]) for dof in MP.shared_dofs]
-#             P[MP.M_ofs[-1]:] = scipy.sparse.spdiags(factors, 0, len(factors), len(factors)) @ P[MP.M_ofs[-1]:]
-#             return P
         
     def h_refine(self, h_ref=None, mult=1, return_P = False, ref="rs"):
         """Refines the Mesh by splitting patches
@@ -1785,10 +1734,10 @@ class Multipatch:
             t = tuple(self.Basis[i,:].indices)
             coeff = tuple()
             if t not in T_dofs:
-                T_dofs[t] = [(i,),set(self.Constr[self.Constr.tocsc()[:,i].indices,:].indices)-{i}]
+                T_dofs[t] = [(i,),set(self.B[self.B.tocsc()[:,i].indices,:].indices)-{i}]
             else:
                 T_dofs[t][0] = T_dofs[t][0]+(i,)
-                T_dofs[t][1] = T_dofs[t][1] & (set(self.Constr[self.Constr.tocsc()[:,i].indices,:].indices)-{i})
+                T_dofs[t][1] = T_dofs[t][1] & (set(self.B[self.B.tocsc()[:,i].indices,:].indices)-{i})
         T_dofs = {t:[np.sort(T_dofs[t][0]),np.sort(list(T_dofs[t][1]))] for t in T_dofs}
         Nodes.update(T_dofs)
         if not dir_boundary:
@@ -1814,8 +1763,8 @@ class Multipatch:
         return bnd_idx
     
     def set_dirichlet_boundary(self, dir_data):
-        self.dir_idx=dict()
-        self.dir_vals=dict()
+        self.dir_idx = dict()
+        self.dir_vals = dict()
         kvs = self.mesh.kvs
         geos = self.mesh.geos
         for key in dir_data:
@@ -1941,6 +1890,6 @@ class Multipatch:
     def sanity_check(self):
         assert self.Basis != None, 'Basis for function space not yet computed.'
         assert all(np.isclose(self.Basis@np.ones(self.numdofs),1)), 'No partition of unity.'
-        assert abs(self.Constr@self.Basis).max()<1e-12, 'Not an H^1-conforming function space.'
+        assert abs(self.B@self.Basis).max()<1e-12, 'Not an H^1-conforming function space.'
         assert scipy.sparse.linalg.norm(self.P2G@self.Basis-scipy.sparse.identity(self.numdofs)) <1e-12
 
