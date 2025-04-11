@@ -55,8 +55,24 @@ class DiagonalOperator(scipy.sparse.linalg.LinearOperator):
     def _transpose(self):
         return self
 
+class SumOperator(scipy.sparse.linalg.LinearOperator):
+    """A :class:`LinearOperator` which implements the 
+    application of an arbitrary sum of given input operators 
+    without(!) using recursive structures.
+    """
+    def __init__(self, ops):
+        self.N = len(ops)
+        assert np.all((np.array([op.shape for op in ops])-np.tile(ops[0].shape,self.N).reshape(-1,2))==0)
+        self.ops = ops
+        self.shape = ops[0].shape
+        scipy.sparse.linalg.LinearOperator.__init__(self, ops[0].dtype, self.shape)
+        
+    def _matvec(self, x):
+        return np.array([op@x for op in self.ops]).sum(axis=0)
 
-
+    def _transpose(self):
+        return SumOperator([op.T for op in self.ops])
+        
 class KroneckerOperator(scipy.sparse.linalg.LinearOperator):
     """A :class:`LinearOperator` which efficiently implements the
     application of the Kronecker product of the given input operators.

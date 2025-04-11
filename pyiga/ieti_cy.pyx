@@ -12,8 +12,9 @@ import time
 import scipy
 from scipy.sparse import coo_matrix, csr_matrix, csc_matrix
 
-#cpdef object pyx_eval_nodal(object B, int[:] corner_dofs):
-    
+# cpdef object pyx_eval_Tcoeff(indptr, indices, data, , int[:] corner_dofs):
+
+#     dofs = np.empty(nodal_indicator.shape[1], dtype=np.int32)
     
 @cython.cdivision(False)
 @cython.boundscheck(False)
