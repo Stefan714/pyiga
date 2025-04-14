@@ -8,7 +8,7 @@ from functools import reduce
 
 def _asdense(X):
     try:
-        return X.A
+        return X.toarray()
     except:
         return X
 
