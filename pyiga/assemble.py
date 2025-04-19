@@ -1327,7 +1327,7 @@ class Multipatch:
         self.R_skeleton = scipy.sparse.coo_matrix((np.ones(len(self.skeleton_dofs)),(np.arange(len(self.skeleton_dofs)),self.skeleton_dofs)),shape=(len(self.skeleton_dofs),self.N_ofs[-1]))
         self.R_interior = scipy.sparse.coo_matrix((np.ones(len(self.interior_dofs)),(np.arange(len(self.interior_dofs)),self.interior_dofs)),shape=(len(self.interior_dofs),self.N_ofs[-1]))
         # per patch, a dict of shared indices
-        self.shared_pp = dict(zip([p for p in range(self.mesh.numpatches)],self.mesh.numpatches*[set(),]))
+        #self.shared_pp = dict(zip([p for p in range(self.mesh.numpatches)],self.mesh.numpatches*[set(),]))
         # a list of interfaces (patch1, boundary dofs1, patch2, boundary dofs2)
         self.intfs = set()
         self.L_intfs = {}
@@ -1416,8 +1416,8 @@ class Multipatch:
             print(p1, bkv1, p2, bkv2)
             print('interface coupling not possible')
             
-        self.shared_pp[p1]=self.shared_pp[p1] | set(dofs1)
-        self.shared_pp[p2]=self.shared_pp[p2] | set(dofs2)
+        #self.shared_pp[p1]=self.shared_pp[p1] | set(dofs1)
+        #self.shared_pp[p2]=self.shared_pp[p2] | set(dofs2)
             
         #Prolongation operator  
         P = -scipy.sparse.coo_matrix(bspline.prolongation_tp(bkv1,bkv2))   #TODO: make paramater to generate prolongation matrix as coo_matrix directly?
@@ -1436,7 +1436,7 @@ class Multipatch:
         #M = scipy.sparse.coo_matrix((np.ones(A.shape[1]),(i,np.arange(A.shape[1]))),2*(A.shape[1],))
         
         #self.B = scipy.sparse.vstack([self.B,scipy.sparse.coo_matrix((data,(I,J)),(len(dofs2), self.numloc_dofs)).tocsr()])
-        return A.tocsr()
+        return A
         
     def finalize(self):
         """After all shared dofs have been declared using
