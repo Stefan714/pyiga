@@ -1,6 +1,7 @@
 """Solvers for linear, nonlinear, and time-dependent problems."""
 import numpy as np
 import scipy.linalg
+import time
 from .operators import make_solver, KroneckerOperator, DiagonalOperator
 from . import utils, algebra
 
@@ -370,6 +371,7 @@ def pcg(A, f, x0 = None, P = 1, rtol = 1e-5, atol = 0.0, maxiter = 100, output =
         maxiter (int) :                                  maximum number of iterations if the stopping criterion is not met
         output (boolean) :                               information to be printed after iteration stops
     """
+    t1=time.time()
     maxiter = int(maxiter)
     
     if not callable(A):
@@ -398,10 +400,6 @@ def pcg(A, f, x0 = None, P = 1, rtol = 1e-5, atol = 0.0, maxiter = 100, output =
             Pfun = lambda x : x
     else:
         Pfun = P
-        # splu_pfun = sp.linalg.splu(pfuns,permc_spec='COLAMD')
-        # pfun = lambda x : splu_pfun.solve(x)
-    # print('Cond about',condest(pfuns@Afuns))
-    # x, it, delta, gamma, d = solvers_cy.pyx_pcg(Afun, f, x0, Pfun, tol, maxiter)
     r = f_ - Afun(x)
     h = Pfun(r)
     rho = h@r
@@ -413,7 +411,6 @@ def pcg(A, f, x0 = None, P = 1, rtol = 1e-5, atol = 0.0, maxiter = 100, output =
     gamma = np.zeros(maxiter,   dtype=float)
     
     if err < max(rtol * err0, atol):
-        #L = algebra.LanczosMatrix(delta[:1], gamma[:0])
         delta[0] = (Afun(d)@d)/rho
         if output:
             print('pcg with preconditioned condition number '+ str('\N{greek small letter kappa}')+ ' ~ ' + str(1.) + ' stopped after ' + str(0) + ' iterations with relres ' + str(err/err0))
@@ -438,6 +435,8 @@ def pcg(A, f, x0 = None, P = 1, rtol = 1e-5, atol = 0.0, maxiter = 100, output =
         delta[it+1] = beta/alpha
         if it==maxiter-1:
             delta[it+1] += (Afun(d)@d)/rho
+
+    t2=time.time()
         
     #print(delta,gamma)
     eigs = scipy.linalg.eigvalsh_tridiagonal(delta[:(it+1)],gamma[:it])
@@ -449,7 +448,7 @@ def pcg(A, f, x0 = None, P = 1, rtol = 1e-5, atol = 0.0, maxiter = 100, output =
     cond = abs(M/m)
     
     if output:
-        print('pcg with preconditioned condition number ' + str('\N{greek small letter kappa}')+ ' ~ ' + str(cond) + ' stopped after ' + str(it+1) + ' iterations with relres ' + str(err/err0))
+        print('pcg with preconditioned condition number ' + str('\N{greek small letter kappa}')+ ' ~ ' + str(cond) + ' stopped after ' + str(it+1) + ' iterations with relres ' + str(err/err0) + ' after '+str(t2-t1)+' seconds.')
     return x, it+1 , m, M, err
 
 
