@@ -120,6 +120,40 @@ cdef tuple intersect(int[:] arr1, int[:] arr2):
             j+=1
             
     return result.base[:k], idx1.base[:k], idx2.base[:k], k
+
+# @cython.cdivision(False)
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# cpdef list pyx_SelectionScaling(list B, int nB, int nConstr):
+
+#     cdef int p, n, i ,ind
+#     cdef int[:] indptr, indices, mult
+#     cdef double[:] data 
+#     cdef list D = nB*[None]
+
+#     for p in range(nB):
+#         indptr = B[p].indptr
+#         indices = B[p].indices
+#         data = B[p].data
+#         n = B[p].shape[1]
+
+#         mult = np.zeros(n, dtype=np.int32)
+
+#         for i in range(nConstr):
+#             for ind in range(indptr[i],indptr[i+1]):
+#                 if abs(data[ind]-1.)<1e-12:
+#                     mult[indices[ind]] += 1
+#         for i in range(n):
+#             if mult[i]!=1:
+#                 mult[i]=0
+#         D[p] = scipy.sparse.spdiags(mult,0,n,n)
+#     return D
+                    
+
+# @cython.cdivision(False)
+# @cython.boundscheck(False)
+# @cython.wraparound(False)
+# cpdef pyx_parametersort()
     
     
     
