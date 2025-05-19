@@ -36,8 +36,6 @@ are described by
 Module members
 --------------
 """
-from __future__ import print_function
-
 import numpy as np
 import numpy.linalg
 import scipy.linalg
@@ -1149,7 +1147,7 @@ class TensorProd:
             I = I + (self.ndim - len(I)) * (slice(None),)
         Ys = tuple(X[I[sl]] for (X,sl) in zip(self.Xs, self.slices))
         if all(np.isscalar(Y) for Y in Ys):
-            return np.product(Ys)
+            return np.prod(Ys)
         else:
             return TensorProd(*Ys)
 

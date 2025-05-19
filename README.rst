@@ -38,18 +38,18 @@ The ``notebooks`` directory contains several examples of how to use ``pyiga``:
 Installation
 ------------
 
-``pyiga`` is compatible with Python 3.6 and higher.
+``pyiga`` is compatible with Python 3.10 and higher on Linux and Windows.
+MacOS is currently untested but might work.
 
-Before installing, make
-sure you have recent versions of **Numpy**, **Scipy** and **Cython** installed
-and that your environment can compile Python extension modules.
-Numpy 1.14 or higher is required.
-If you do not have such an environment set up yet, the easiest way to get it
-is by installing Anaconda_ (this can be done without administrator privileges).
+Before installing, make sure that your environment can compile Python extension
+modules; on Linux, this should work out of the box with gcc, but on Windows you need
+Microsoft Visual Studio or the Microsoft Build Tools.
+Alternatively, installing on WSL (Windows Subsystem for Linux) works very well on Windows too.
+You can use either a standard Python distribution or Anaconda_.
 
-Clone this repository and execute ::
+To install ``pyiga``, clone this repository and execute ::
 
-    $ python setup.py install
+    $ python -m pip install .
 
 in the main directory. The installation script should now compile the Cython
 extensions and then install the package.
@@ -59,6 +59,10 @@ If you have Intel MKL installed on your machine, be sure to install the
 MKL PARDISO sparse direct solver instead of the internal scipy solver
 (typically SuperLU).
 
+In order to run the included Jupyter notebooks, you might also want to install **jupyterlab**,
+**matplotlib**, and **sympy**.
+
+
 Updating
 ~~~~~~~~
 
@@ -67,17 +71,19 @@ version, assuming that you have cloned it from Github, you can simply move to
 the project directory and execute ::
 
     $ git pull
-    $ python setup.py install
+    $ python -m pip install .
 
 Running tests
 -------------
 
-`pyiga` comes with a small test suite to test basic functionality. Depending on
-your test runner of choice, move to the main directory and execute
-``nosetests`` or ``py.test`` to run the tests.
+`pyiga` comes with a small test suite to test basic functionality.
+To run them, first install ``pip install pytest``, then move to
+the ``test`` subdirectory and execute ::
+
+    $ python -m pytest -v --import-mode=importlib
 
 If the test runner fails to find the Cython extensions modules (``pyiga.bspline_cy`` etc.),
-you may have to run ``python setup.py build_ext -i`` to build them in-place.
+try running ``python setup.py build_ext -i`` to build them in-place.
 
 Usage
 -----
@@ -98,7 +104,7 @@ the unit tests, and the `IPython notebooks`_ to learn more.
 
 
 .. _IPython notebooks: ./notebooks
-.. _Documentation: http://pyiga.readthedocs.io/en/latest/
+.. _Documentation: http://pyiga.readthedocs.io/latest/
 .. _FEniCS: https://fenicsproject.org/
 .. _Anaconda: https://www.anaconda.com/distribution/
 

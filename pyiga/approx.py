@@ -1,7 +1,5 @@
 # -*- coding: utf-8 -*-
 """Methods for approximating functions in spline spaces."""
-from __future__ import print_function
-
 from . import bspline
 from . import assemble
 from . import tensor
@@ -116,7 +114,7 @@ def project_L2(kvs, f, f_physical=False, geo=None):
         M = assemble.mass(kvs, geo=geo)
         b = rhs.ravel()
         assert b.shape[0] == M.shape[1], 'L2 projection with geometry only implemented for scalar functions'
-        x, info = scipy.sparse.linalg.cg(M, b, tol=1e-12, atol=1e-12,
+        x, info = scipy.sparse.linalg.cg(M, b, rtol=1e-12, atol=1e-12,
                 maxiter=100, M=operators.KroneckerOperator(*Minvs))
         if info:
             print('WARNING: L2 projection - CG did not converge:', info, file=sys.stderr)

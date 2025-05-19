@@ -1,38 +1,38 @@
+image: Visual Studio 2022
+
 environment:
   matrix:
-    # For Python versions available on Appveyor, see
-    # http://www.appveyor.com/docs/installed-software#python
-
-    - PYTHON_VERSION: 3.7
-      MINICONDA: "C:\\Miniconda37"
-    - PYTHON_VERSION: 3.7
-      MINICONDA: "C:\\Miniconda37-x64"
-    - PYTHON_VERSION: 3.8
-      MINICONDA: "C:\\Miniconda38-x64"
-      APPVEYOR_BUILD_WORKER_IMAGE: Visual Studio 2022
+    - PYTHON: "C:\\Python310-x64"
+      PYTHON_VERSION: "3.10"
+      PYTHON_ARCH: "64"
+    - PYTHON: "C:\\Python311-x64"
+      PYTHON_VERSION: "3.11"
+      PYTHON_ARCH: "64"
+    - PYTHON: "C:\\Python312-x64"
+      PYTHON_VERSION: "3.12"
+      PYTHON_ARCH: "64"
+    - PYTHON: "C:\\Python313-x64"
+      PYTHON_VERSION: "3.13"
+      PYTHON_ARCH: "64"
 
 init:
-  - "ECHO %PYTHON_VERSION% %MINICONDA%"
+  - "ECHO Python %PYTHON_VERSION% %PYTHON_ARCH% bit"
 
 install:
-  - "set PATH=%MINICONDA%;%MINICONDA%\\Scripts;%PATH%"
-  - conda config --set always_yes yes --set changeps1 no
-  - activate
-  - "conda create -q -n test-environment python=%PYTHON_VERSION%  wheel setuptools Cython pytest %MSVC_RUNTIME% numpy scipy matplotlib"
-  - activate test-environment
+  - "%PYTHON%\\python.exe -m pip install --upgrade pip"
+  - "%PYTHON%\\python.exe -m pip install pytest matplotlib"
+  - "%PYTHON%\\python.exe -m pip install . -v"
 
 build: off
 
 test_script:
-  - pip install networkx==2.6       # last version to support Python 3.7
-  - python setup.py install
-  - python setup.py build_ext -i
-  - python -m pytest -v
+  - "cd test"
+  - "%PYTHON%\\python.exe -m pytest -v --import-mode=importlib"
 
 after_test:
   # build the wheels
-  - python setup.py bdist_wheel
+  #- "%PYTHON%\\python.exe -m build --wheel"
 
 artifacts:
   # bdist_wheel puts the built wheel in the dist directory
-  - path: dist\*
+  #- path: dist\*

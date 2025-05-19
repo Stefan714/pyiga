@@ -5,13 +5,12 @@ import tempfile
 import importlib
 import sys
 import os.path
-import appdirs
+import platformdirs
 import hashlib
 
 import numpy
 
-import distutils
-from distutils.core import Extension
+from setuptools import Extension
 
 import Cython
 import Cython.Compiler.Options
@@ -20,7 +19,7 @@ from Cython.Build.Dependencies import cythonize
 
 
 PYIGAPATH = os.path.normpath(os.path.join(os.path.split(pyiga.__file__)[0], '..'))
-MODDIR = os.path.join(appdirs.user_cache_dir('pyiga'), 'modules')
+MODDIR = os.path.join(platformdirs.user_cache_dir('pyiga'), 'modules')
 
 
 def _compile_cython_module_nocache(src, modname, verbose=False):
@@ -34,10 +33,13 @@ def _compile_cython_module_nocache(src, modname, verbose=False):
     ]
     extra_compile_args = ['-O3', '-march=native', '-ffast-math', '-fopenmp', '-g1']
 
+    c_macros = [("NPY_NO_DEPRECATED_API", "NPY_1_7_API_VERSION")]
+
     extension = Extension(name=modname,
                           sources=[modfile],
                           include_dirs=include_dirs,
-                          extra_compile_args=extra_compile_args)
+                          extra_compile_args=extra_compile_args,
+                          define_macros=c_macros)
 
     cython_include_dirs = [PYIGAPATH]
     build_extension = _get_build_extension()
@@ -48,7 +50,7 @@ def _compile_cython_module_nocache(src, modname, verbose=False):
     build_extension.build_temp = MODDIR
     build_extension.build_lib = MODDIR
 
-    distutils.log.set_verbosity(verbose)
+    #distutils.log.set_verbosity(verbose)
     build_extension.run()
     return importlib.import_module(modname)
 

@@ -30,7 +30,7 @@ cdef class BaseAssembler1D(_CommonBase1D):
     cdef void entry_impl(self, size_t[1] i, size_t[1] j, double result[]) noexcept nogil:
         pass
 
-    cpdef double entry1(self, size_t i):
+    cpdef double entry1(self, size_t i) noexcept:
         """Compute an entry of the vector to be assembled."""
         if self.arity != 1:
             return 0.0
@@ -41,7 +41,7 @@ cdef class BaseAssembler1D(_CommonBase1D):
             self.entry_impl(I, <size_t*>0, &result)
             return result
 
-    cpdef double entry(self, size_t i, size_t j):
+    cpdef double entry(self, size_t i, size_t j) noexcept:
         """Compute an entry of the matrix."""
         if self.arity != 2:
             return 0.0
@@ -149,7 +149,7 @@ cdef class BaseAssembler1D(_CommonBase1D):
 
 
 # helper function for fast low-rank assembler
-cdef double _entry_func_1d(size_t i, size_t j, void * data):
+cdef double _entry_func_1d(size_t i, size_t j, void * data) noexcept:
     return (<BaseAssembler1D>data).entry(i, j)
 
 
@@ -339,7 +339,7 @@ cdef class BaseAssembler2D(_CommonBase2D):
     cdef void entry_impl(self, size_t[2] i, size_t[2] j, double result[]) noexcept nogil:
         pass
 
-    cpdef double entry1(self, size_t i):
+    cpdef double entry1(self, size_t i) noexcept:
         """Compute an entry of the vector to be assembled."""
         if self.arity != 1:
             return 0.0
@@ -350,7 +350,7 @@ cdef class BaseAssembler2D(_CommonBase2D):
             self.entry_impl(I, <size_t*>0, &result)
             return result
 
-    cpdef double entry(self, size_t i, size_t j):
+    cpdef double entry(self, size_t i, size_t j) noexcept:
         """Compute an entry of the matrix."""
         if self.arity != 2:
             return 0.0
@@ -458,7 +458,7 @@ cdef class BaseAssembler2D(_CommonBase2D):
 
 
 # helper function for fast low-rank assembler
-cdef double _entry_func_2d(size_t i, size_t j, void * data):
+cdef double _entry_func_2d(size_t i, size_t j, void * data) noexcept:
     return (<BaseAssembler2D>data).entry(i, j)
 
 
@@ -663,7 +663,7 @@ cdef class BaseAssembler3D(_CommonBase3D):
     cdef void entry_impl(self, size_t[3] i, size_t[3] j, double result[]) noexcept nogil:
         pass
 
-    cpdef double entry1(self, size_t i):
+    cpdef double entry1(self, size_t i) noexcept:
         """Compute an entry of the vector to be assembled."""
         if self.arity != 1:
             return 0.0
@@ -674,7 +674,7 @@ cdef class BaseAssembler3D(_CommonBase3D):
             self.entry_impl(I, <size_t*>0, &result)
             return result
 
-    cpdef double entry(self, size_t i, size_t j):
+    cpdef double entry(self, size_t i, size_t j) noexcept:
         """Compute an entry of the matrix."""
         if self.arity != 2:
             return 0.0
@@ -782,7 +782,7 @@ cdef class BaseAssembler3D(_CommonBase3D):
 
 
 # helper function for fast low-rank assembler
-cdef double _entry_func_3d(size_t i, size_t j, void * data):
+cdef double _entry_func_3d(size_t i, size_t j, void * data) noexcept:
     return (<BaseAssembler3D>data).entry(i, j)
 
 

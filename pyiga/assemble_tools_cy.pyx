@@ -112,7 +112,7 @@ cdef void from_seq3(size_t i, size_t[3] ndofs, size_t[3] out) noexcept nogil:
 ##
 ##     @cython.boundscheck(False)
 ##     @cython.wraparound(False)
-##     cdef bint index_changed(self, unsigned[:, :] indices, size_t i) nogil:
+##     cdef bint index_changed(self, unsigned[:, :] indices, size_t i) noexcept nogil:
 ##         cdef bint changed = False
 ##         for k in range(self.num_indices):
 ##             if indices[i, k] != self.old_indices[k]:
