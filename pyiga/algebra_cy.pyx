@@ -15,9 +15,9 @@ from libc.stdlib cimport malloc, free
 from cython.operator cimport dereference as deref, postincrement as inc
 #from cython.cimports.cpython.mem import PyMem_Malloc, PyMem_Realloc, PyMem_Free
 
-@cython.cdivision(False)
-@cython.boundscheck(True)
-@cython.wraparound(True)
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cpdef object pyx_compute_basis(int m, int n, object Constr, int maxiter): 
     cdef int *active = <int *>malloc(m * sizeof(int))
     cdef int i, j=0, it=1, num_active=m
@@ -48,9 +48,9 @@ cpdef object pyx_compute_basis(int m, int n, object Constr, int maxiter):
     #print(Basis)
     return Basis[:,ndDofs.base]#, Constr
 
-@cython.cdivision(False)
-@cython.boundscheck(True)
-@cython.wraparound(True)
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef map[int,int] pyx_find_ddofs(int[:] Cindptr, int[:] Cindices, double[:] Cdata, int* active, int num_active):
     cdef map[int,int] ddofs
     cdef int r, elim_dof, ind
@@ -80,9 +80,9 @@ cdef map[int,int] pyx_find_ddofs(int[:] Cindptr, int[:] Cindices, double[:] Cdat
             ddofs[elim_dof] = r
     return ddofs
         
-@cython.cdivision(False)
-@cython.boundscheck(True)
-@cython.wraparound(True)
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef int pyx_compute_active_constr(int m, int n, int[:] Cindptr, double[:] Cdata, int* active):
     cdef int r, a, b, ind, num_active= 0
     
@@ -104,9 +104,9 @@ cdef int pyx_compute_active_constr(int m, int n, int[:] Cindptr, double[:] Cdata
                 Cdata[ind]=-Cdata[ind]
     return num_active
     
-@cython.cdivision(False)
-@cython.boundscheck(True)
-@cython.wraparound(True)
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef object pyx_update_basis(int[:] Cindptr, int[:] Cindices, double[:] Cdata, map[int,int]& Ddofs, map[int,int]& alldDofs, object Basis, int n):   
     #assert isinstance(Constr, csr_matrix), "Constraint matrix is not CSR."
     #assert isinstance(Basis, csc_matrix), "Basis matrix is not CSC."
@@ -156,9 +156,9 @@ cdef object pyx_update_basis(int[:] Cindptr, int[:] Cindices, double[:] Cdata, m
     free(ddofs)
     return lBasis
 
-@cython.cdivision(False)
-@cython.boundscheck(True)
-@cython.wraparound(True)
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
 cdef bint pyx_check_col(int[:] Bindptr, int* ddofs, int n_dd):
     cdef int i, dof
     cdef bint check = False
@@ -170,7 +170,7 @@ cdef bint pyx_check_col(int[:] Bindptr, int* ddofs, int n_dd):
             break;
     return check
         
-@cython.cdivision(False)
+@cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef tuple pyx_eval_charPolynomial(double[:] delta, double[:] gamma, double lambda_):

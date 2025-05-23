@@ -1321,11 +1321,6 @@ class Multipatch:
         # offset to the dofs of the i-th patch
         self.N_ofs = np.concatenate(([0], np.cumsum(self.N)))
 
-        self.skeleton_dofs = np.concatenate([boundary_dofs(self.mesh.kvs[p],ravel=1) + self.N_ofs[p] for p in range(self.numpatches)])
-        self.interior_dofs = np.setdiff1d(np.arange(self.N_ofs[-1]),self.skeleton_dofs)
-
-        self.R_skeleton = scipy.sparse.coo_matrix((np.ones(len(self.skeleton_dofs)),(np.arange(len(self.skeleton_dofs)),self.skeleton_dofs)),shape=(len(self.skeleton_dofs),self.N_ofs[-1]))
-        self.R_interior = scipy.sparse.coo_matrix((np.ones(len(self.interior_dofs)),(np.arange(len(self.interior_dofs)),self.interior_dofs)),shape=(len(self.interior_dofs),self.N_ofs[-1]))
         # per patch, a dict of shared indices
         #self.shared_pp = dict(zip([p for p in range(self.mesh.numpatches)],self.mesh.numpatches*[set(),]))
         # a list of interfaces (patch1, boundary dofs1, patch2, boundary dofs2)
@@ -1444,9 +1439,15 @@ class Multipatch:
         up the internal data structures.
         """
         t=time.time()
-        B = self.B@self.R_skeleton.T
+        I = self.interface_dofs = np.unique(self.B.indices)
+        F = self.free_dofs = np.setdiff1d(np.arange(self.N_ofs[-1]),I)
+
+        self.R_interface = scipy.sparse.coo_matrix((np.ones(len(I)),(np.arange(len(I)),I)),shape=(len(I),self.N_ofs[-1]))
+        self.R_free      = scipy.sparse.coo_matrix((np.ones(len(F)),(np.arange(len(F)),F)),shape=(len(F),self.N_ofs[-1]))
+        
+        B = (self.B@self.R_interface.T).tocsr()
         self.Basis = algebra_cy.pyx_compute_basis(B.shape[0], B.shape[1], B, maxiter=10)
-        self.Basis = scipy.sparse.hstack([self.R_interior.T, self.R_skeleton.T@self.Basis], format='csc')
+        self.Basis = scipy.sparse.hstack([self.R_free.T, self.R_interface.T@self.Basis], format='csc')
         print("Basis setup took "+str(time.time()-t)+" seconds")
         self.P2G = assemble_cy.pyx_right_inverse_C0_Basis(self.Basis.indptr, self.Basis.indices, self.Basis.data, *self.Basis.shape).tocsc()
         
@@ -1781,29 +1782,15 @@ class Multipatch:
             self.dir_idx[p], lookup = np.unique(np.concatenate(self.dir_idx[p]), return_index = True)
             self.dir_vals[p] = np.concatenate(self.dir_vals[p])[lookup]
             
-        self.global_dir_idx = np.concatenate([self.dir_idx[p] + self.N_ofs[p] for p in self.dir_idx])
+        self.local_dir_idx = np.concatenate([self.dir_idx[p] + self.N_ofs[p] for p in self.dir_idx])
+        self.local_dir_vals = np.concatenate([self.dir_vals[p] for p in self.dir_idx])
 
-    def compute_dirichlet_bcs(self, b_data):
-        """Performs the same operation as the global function
-        :func:`compute_dirichlet_bcs`, but for a multipatch problem.
-        The dictionary `b_data` should contain tuples of the form `(bd_idx, dir_func)`, 
-        where `bd_idx` relates to a part of the boundary of the mesh. 
-        Returns:
-            A pair `(indices, values)` suitable for passing to
-            :class:`RestrictedLinearSystem`.
-        """
-        bcs = []
-        p2g = dict()        # cache the patch-to-global indices for efficiency
-        for bidx, g in b_data.items():
-            for p, bdspec in self.mesh.outer_boundaries[bidx]:
-                (kvs, geo), _ = self.mesh.patches[p]
-                bc = compute_dirichlet_bc(kvs, geo, ((bdspec//2,bdspec%2),), g)# + self.N_ofs[p]
-                B = self.Basis[bc[0] + self.N_ofs[p]]       
-                feasible = (B.indptr[1:]-B.indptr[:-1])==1
-                idx, feasible = self._get_idx(bc[0], p)
-                idx = B[np.arange(len(bc[0]))[feasible]]@np.arange(self.numdofs)
-                bcs.append((idx.astype(int), bc[1][feasible]))
-        return combine_bcs(bcs)
+        B=self.Basis.tocsr()
+        global_dir_idx , global_dir_vals= assemble_cy.pyx_find_global_indices(B.indptr, B.indices, B.data, 
+                                                                              self.local_dir_idx.astype(np.int32), self.local_dir_vals)
+
+        global_dir_idx, lookup = np.unique(global_dir_idx, return_index=True)
+        return global_dir_idx, global_dir_vals[lookup]
     
     def _get_idx(self, ids, p):
         """Helper to get global dof indices from the local indices 'ids' and patch 'p'.
