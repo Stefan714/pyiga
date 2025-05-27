@@ -6,7 +6,9 @@ cimport cython
 import numpy as np
 cimport numpy as np
 #from libcpp.vector cimport vector
-#from libc.stdlib cimport malloc, free
+from libc.stdlib cimport malloc, free
+
+from libc.math cimport fabs
 
 import time 
 import scipy
@@ -16,7 +18,7 @@ from scipy.sparse import coo_matrix, csr_matrix, csc_matrix
 
 #     dofs = np.empty(nodal_indicator.shape[1], dtype=np.int32)
     
-@cython.cdivision(False)
+@cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef tuple pyx_compute_decoupled_coarse_basis(object global_Basis, int[:] N_ofs, int[:,:] p_intfs): 
@@ -74,7 +76,7 @@ cpdef tuple pyx_compute_decoupled_coarse_basis(object global_Basis, int[:] N_ofs
     return Basisk, N_ofs_.base, N.base, B
     #return (1,2)
 
-@cython.cdivision(False)
+@cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef int max(int a, int b):
@@ -83,7 +85,7 @@ cdef int max(int a, int b):
     else: 
         return b
     
-@cython.cdivision(False)
+@cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef int min(int a, int b):
@@ -92,7 +94,7 @@ cdef int min(int a, int b):
     else: 
         return b
     
-@cython.cdivision(False)
+@cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cdef tuple intersect(int[:] arr1, int[:] arr2):
@@ -118,48 +120,107 @@ cdef tuple intersect(int[:] arr1, int[:] arr2):
             i+=1
         else:
             j+=1
-            
     return result.base[:k], idx1.base[:k], idx2.base[:k], k
 
-# @cython.cdivision(False)
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# cpdef list pyx_SelectionScaling(list B, int nB, int nConstr):
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef void pyx_parametersort(int[:] indptr, int[:] indices, double[:] data, int m, int n, double[:] a):
+    cdef int pos,neg,i,ind
+    for i in range(m):
+        pos=-1
+        neg=-1
+        for ind in range(indptr[i],indptr[i+1]):
+            if fabs(1.0-data[ind])<1e-12:
+                pos = ind
+            if fabs(1.0+data[ind])<1e-12:
+                neg = ind
+        if (pos > 0) and (neg > 0):
+            if (a[indices[pos]] > a[indices[neg]]):
+                data[pos]*=-1
+                data[neg]*=-1
 
-#     cdef int p, n, i ,ind
-#     cdef int[:] indptr, indices, mult
-#     cdef double[:] data 
-#     cdef list D = nB*[None]
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef np.ndarray[np.float64_t, ndim=1] pyx_multiplicity_scaling(int[:] indptr, int[:] indices, double[:] data, int m, int n):
 
-#     for p in range(nB):
-#         indptr = B[p].indptr
-#         indices = B[p].indices
-#         data = B[p].data
-#         n = B[p].shape[1]
+    cdef double[:] d = np.zeros(n, dtype=np.float64)
+    cdef int i, j, ind
 
-#         mult = np.zeros(n, dtype=np.int32)
+    for i in range(m):
+        for ind in range(indptr[i],indptr[i+1]):
+            j=indices[ind]
+            d[j]+=1
 
-#         for i in range(nConstr):
-#             for ind in range(indptr[i],indptr[i+1]):
-#                 if abs(data[ind]-1.)<1e-12:
-#                     mult[indices[ind]] += 1
-#         for i in range(n):
-#             if mult[i]!=1:
-#                 mult[i]=0
-#         D[p] = scipy.sparse.spdiags(mult,0,n,n)
-#     return D
-                    
+    for j in range(n):
+        d[j]=1.0/(1.0+d[j])
+    return d.base
 
-# @cython.cdivision(False)
-# @cython.boundscheck(False)
-# @cython.wraparound(False)
-# cpdef pyx_parametersort()
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef np.ndarray[np.float64_t, ndim=1] pyx_constraint_scaling(int[:] indptr, int[:] indices, double[:] data, int m, int n):
+
+    cdef double[:] d = np.zeros(n, dtype=np.float64)
+    cdef int i, j, ind
+
+    for i in range(m):
+        for ind in range(indptr[i],indptr[i+1]):
+            d[indices[ind]]+=data[ind]
+
+    for j in range(n):
+        d[j]=1.0/(1.0+d[j])
+    return d.base
+
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef np.ndarray[np.float64_t, ndim=1] pyx_weight_scaling(int[:] indptr, int[:] indices, double[:] data, int m, int n):
+
+    cdef double[:] d = np.zeros(n, dtype=np.float64)
+    cdef int i, j, ind
+
+    for i in range(m):
+        for ind in range(indptr[i],indptr[i+1]):
+            d[indices[ind]]+=fabs(data[ind])
+
+    for j in range(n):
+        d[j]=1.0/(1.0+d[j])
+    return d.base
+                
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef np.ndarray[np.int32_t, ndim=1] pyx_selection_scaling(int[:] indptr, int[:] indices, double[:] data, int m, int n):
+
+    cdef int[:] d = np.zeros(n, dtype=np.int32)
+    cdef char* valid = <char*> malloc(n * sizeof(char))
+    cdef int i, j, ind
     
+    for i in range(n):
+        valid[i] = 1
+
+    for i in range(m):
+        for ind in range(indptr[i],indptr[i+1]):
+            j=indices[ind]
+            if fabs(1.0-data[ind])<1e-12:
+                d[j]+=1
+            else:
+                valid[j]=0
+
+    for j in range(n):
+        if d[j] > 1 or not valid[j]:
+            d[j]=0
+    free(valid)
+    return d.base
+
+
+                
+
+
+
+
+
+
     
-    
-    
-    
-    
-    
-    
-        #object Basis, int[:] N, object B
