@@ -14,9 +14,35 @@ import time
 import scipy
 from scipy.sparse import coo_matrix, csr_matrix, csc_matrix
 
-# cpdef object pyx_eval_Tcoeff(indptr, indices, data, , int[:] corner_dofs):
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef object identify_T_coefficients_from_corner_basis(int[:] CBasis_indptr, int[:] CBasis_indices, double[:] CBasis_data, int n,   int m,
+                                                       int[:] B_indptr,      int[:] B_indices,      double[:] B_data,      int lam, int deg): 
+    cdef int j, r, ind, ind2, nnz=0
+    cdef bint found = False, found2= False
+    cdef int[:] ii = np.empty((deg+1)*m, dtype=np.int32)
+    cdef int[:] jj = np.empty((deg+1)*m, dtype=np.int32)
+    cdef double[:] vv = np.empty((deg+1)*m, dtype=np.float64)
 
-#     dofs = np.empty(nodal_indicator.shape[1], dtype=np.int32)
+    for j in range(m):
+        found=False
+        found2=False
+        for ind in range(CBasis_indptr[j],CBasis_indptr[j+1]):
+            if found: break
+            for r in range(lam):
+                for ind2 in range(B_indptr[r],B_indptr[r+1]):
+                    if B_indices[ind2]==CBasis_indices[ind] and fabs(B_data[ind2]-1)<1e-12:
+                        found = True
+                        for ind2 in range(B_indptr[r], B_indptr[r+1]):
+                            if fabs(fabs(B_data[ind2])-1)>1e-12:
+                                found2 = True
+                                ii[nnz] = B_indices[ind2]
+                                jj[nnz] = j
+                                vv[nnz] = fabs(B_data[ind2])
+                                nnz+=1
+                    
+    return scipy.sparse.csc_matrix((vv.base[:nnz],(ii.base[:nnz],jj.base[:nnz])),(n,m))
     
 @cython.cdivision(True)
 @cython.boundscheck(False)
