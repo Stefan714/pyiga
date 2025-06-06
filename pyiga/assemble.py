@@ -127,6 +127,7 @@ from . import solvers
 
 from .quadrature import make_iterated_quadrature, make_tensor_quadrature
 from .mlmatrix import MLStructure
+from mpl_toolkits.axes_grid1 import make_axes_locatable
 
 ################################################################################
 # 1D assembling routines
@@ -1820,47 +1821,45 @@ class Multipatch:
         for d_id in domain_id:
             I += np.array([assemble(problem, kvs=tuple(bspline.KnotVector(kv.mesh,0) for kv in kvs), geo=geo, nu=nu[d_id], uh=geometry.BSplineFunc(kvs,u_loc[self.N_ofs[p]:self.N_ofs[p+1]]), **kwargs).ravel() for p,((kvs,geo),_) in enumerate(self.mesh.patches) if p in self.mesh.domains[d_id]]).sum()
         return I
-    
-    def plot(self, u, cmap = plt.cm.jet, cbar=True, mesh=False, axis='scaled', contour=False, **kwargs):
-        assert self.sdim==2, 'visualization only possible for 2D.'
-        assert (len(u)==self.numdofs) or (len(u)==self.N_ofs[-1]), 'wrong size of coefficient vector.'
-        
-        fig = plt.figure(figsize=kwargs.get('figsize'))
-        ax = plt.axes()
-        
-        u_funcs = self.function(u)
-        
-        if 'range' not in kwargs:
-            u_max=max(u)
-            u_min=min(u)
-        else:
-            assert isinstance(kwargs['range'],tuple) and len(kwargs['range'])==2, 'wrong input for image range'
-            u_max=kwargs['range'][1]
-            u_min=kwargs['range'][0]
-            
-        if abs(u_max-u_min)<1e-12:
-            mid=(u_min+u_max)/2
-            u_max=mid+1e-12
-            u_min=mid-1e-12
 
-        if mesh:
-            self.mesh.draw(fig=fig)
-            
-        for (u_func, ((kvs, geo),_)) in zip(u_funcs, self.mesh.patches):
-            vis.plot_field(u_func, geo, vmin=u_min, vmax=u_max, cmap = cmap, contour=contour)
-        
-        plt.axis(axis);
-        if cbar:
-            cax = fig.add_axes([ax.get_position().x1+0.03,ax.get_position().y0,0.02,ax.get_position().height])
-            plt.colorbar(cax=cax) # Similar to fig.colorbar(im, cax = cax)
-        plt.show()
+    def plot(self, u, cmap=plt.cm.jet, cbar=True, mesh=False, contour=False, **kwargs):
+    
+        assert self.sdim == 2, 'visualization only possible for 2D.'
+        assert len(u) in {self.numdofs, self.N_ofs[-1]}, 'wrong size of coefficient vector.'
+    
+        ax = kwargs.pop('axis', None)
+        fig = ax.figure if ax else plt.figure(figsize=kwargs.get('figsize', (5,5)))
+        if not ax: ax = plt.axes()
+    
+        u_funcs = self.function(u)
+        u_min, u_max = (kwargs.get('range') or (min(u), max(u)))
+        if abs(u_max - u_min) < 1e-12:
+            mid = (u_min + u_max)/2
+            u_min, u_max = mid - 1e-12, mid + 1e-12
+    
+        if mesh: self.mesh.draw(fig=fig)
+    
+        im = None
+        for (u_func, ((_, geo), _)) in zip(u_funcs, self.mesh.patches):
+            im, _ = vis.plot_field(u_func, geo, vmin=u_min, vmax=u_max, cmap=cmap, contour=contour)
+    
+        if cbar and im is not None:
+            divider = make_axes_locatable(ax)
+            cax = divider.append_axes("right", size="5%", pad=0.05)
+            fig.colorbar(im, cax=cax)
+    
+        pts = np.vstack([geo.control_points()[:, :2] for (_, geo), _ in self.mesh.patches])
+        margin = lambda v: 0.05 * v if v > 0 else 0.1
+        ax.set_xlim(pts[:, 0].min() - margin(pts[:, 0].ptp()), pts[:, 0].max() + margin(pts[:, 0].ptp()))
+        ax.set_ylim(pts[:, 1].min() - margin(pts[:, 1].ptp()), pts[:, 1].max() + margin(pts[:, 1].ptp()))
+        ax.axis('scaled')
+
+        return ax
         
     def plot_quiver(self, u, mesh=False, axis='scaled', **kwargs):
-        
         for (u_func, ((kvs, geo),_)) in zip(u_funcs, self.mesh.patches):
             vis.plot_field(u_func, geo, vmin=u_min, vmax=u_max, cmap = cmap, contour=contour)
-        
-        
+                
     def L2projection(self, u):
         Mh = self.assemble_volume(vform.mass_vf(2))
         u_rhs = self.assemble_volume(vform.L2functional_vf(2, physical=True),f=u)

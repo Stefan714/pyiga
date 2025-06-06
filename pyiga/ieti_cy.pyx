@@ -43,7 +43,19 @@ cpdef object identify_T_coefficients_from_corner_basis(int[:] CBasis_indptr, int
                                 nnz+=1
                     
     return scipy.sparse.csc_matrix((vv.base[:nnz],(ii.base[:nnz],jj.base[:nnz])),(n,m))
-    
+
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef np.ndarray[np.uint8_t, ndim=1] eliminate_corner_constraints(int[:] indptr, int[:] indices, double[:] data, int m, int n, int[:] corners, int nC):
+    cdef np.ndarray[np.uint8_t, ndim=1] out = np.zeros(m, dtype=np.uint8)
+    cdef int i, ind
+    for i in range(nC):
+        for ind in range(indptr[corners[i]],indptr[corners[i]+1]):
+            if fabs(1-data[ind])<1e-12:
+                out[indices[ind]]=1
+    return out
+
 @cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)

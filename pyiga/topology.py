@@ -557,10 +557,10 @@ class PatchMesh:
         if matching:
             return matching[0]
         else:
-            return None     # no matching segment - must be on the boundary
+            return None  # no matching segment - must be on the boundary
 
-    def draw(self, vertex_idx = False, patch_idx = False, nodes=False, bwidth=1, color=None, bcolor=None, axis='scaled', **kwargs):
-        """draws a visualization of the patchmesh in 2D."""
+    def plotmesh(self, vertex_idx = False, patch_idx = False, nodes=False, bwidth=1, color=None, bcolor=None, **kwargs):
+        """plots the multi-patch domain in 2D."""
         
         if color is not None:
             if isinstance(color,dict):
@@ -569,14 +569,14 @@ class PatchMesh:
             elif isinstance(color, str):
                 color = {d: color for d in self.domains}
         
-        if kwargs.get('fig'):
-            fig, ax = kwargs['fig']
+        if kwargs.get('axis'):
+            ax = kwargs['axis']
         else:
-            fig=plt.figure(figsize=kwargs.get('figsize'))
+            fig=plt.figure(figsize=kwargs.get('figsize', (5,5)))
             ax = plt.axes()
             
         if nodes:
-            plt.scatter(*np.transpose(self.vertices),zorder=100000)
+            ax.scatter(*np.transpose(self.vertices),zorder=100000)
         
         for p,((kvs, geo),_) in enumerate(self.patches):
             if color is not None:
@@ -584,29 +584,29 @@ class PatchMesh:
             else:
                 c=None
             if kwargs.get('knots'):
-                vis.plot_geo(geo, gridy=kvs[0].mesh, gridx=kvs[1].mesh, lcolor='lightgray', color=c, boundary=True)
+                vis.plot_geo(geo, gridy=kvs[0].mesh, gridx=kvs[1].mesh, lcolor='lightgray', color=c, boundary=True, axis=ax)
             else:
-                vis.plot_geo(geo, grid=2, color=c, boundary=True)
+                vis.plot_geo(geo, grid=2, color=c, boundary=True, axis=ax)
         
         for key in self.outer_boundaries:
             bcol=None
             if bcolor is not None:
                 bcol=bcolor[key]
             for (p,b) in self.outer_boundaries[key]:
-                vis.plot_geo(self.geos[p].boundary([assemble.int_to_bdspec(b)]), linewidth=bwidth, color=bcol, zorder=10000)
+                vis.plot_geo(self.geos[p].boundary([assemble.int_to_bdspec(b)]), linewidth=bwidth, color=bcol, zorder=10000, axis=ax)
 
         if patch_idx:
             for p in range(len(self.patches)):        # annotate patch indices
                 geo = self.patches[p][0][1]
                 center_xi = np.flipud(np.mean(geo.support, axis=1))
                 center = geo(*center_xi)
-                plt.annotate(str(p), center, fontsize=18, color='green')
+                ax.annotate(str(p), center, fontsize=18, color='green')
             
         if vertex_idx:
             for i, vtx in enumerate(self.vertices):   # annotate vertex indices
-                plt.annotate(str(i), vtx, fontsize=18, color='red')
+                ax.annotate(str(i), vtx, fontsize=18, color='red')
                 
-        plt.axis(axis);
+        #plt.axis(scaled);
         
 
     def sanity_check(self):
