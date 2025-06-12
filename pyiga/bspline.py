@@ -36,23 +36,6 @@ def _parse_bdspec(bdspec, dim):
 def unit(n,k):
     return np.eye(1,n,k).ravel()
 
-def is_sub_space(kv1,kv2):
-    """Checks if the spline space induced by the knot vector kv1 is a subspace of the corresponding spline space induced by kv2 in some subinterval of kv1.
-    
-    Currently only covers cases with the same spline degree `p`.
-    
-    """
-    assert kv1.p == kv2.p
-    
-    a1, b1 = kv1.support()
-    a2, b2 = kv2.support()
-    
-    if a2 < a1 or b2 > b1:
-        return False
-
-    return all([any(np.isclose(k,kv2.mesh)) for k in kv1.mesh if a2 <= k <= b2])
-
-
 def multi_indices(N, k=0):
     assert N>0 and k>=0, "N must be positive and k non-negative."
     if N==1:
@@ -94,9 +77,10 @@ class KnotVector:
         # sanity check: knots should be monotonically increasing
         assert np.all(self.kv[1:] - self.kv[:-1] >= 0), 'knots should be increasing'
         self.p = p
+        assert np.isclose(self.kv[:p+1], self.kv[0]).all() and np.isclose(self.kv[-(p+1):], self.kv[-1]).all(), 'knots should be p-open'
+        self._mesh, self._knots_to_mesh, self.m = np.unique(self.kv,return_inverse=True, return_counts=True)
+        assert (self.m<=p+1).all(), 'multiplicites exceed degree by more than 1'
         assert isinstance(self.p,int) and self.p >= 0, 'polynomial degree is not a integer'
-        self._mesh = None    # knots with duplicates removed (on demand)
-        self._knots_to_mesh = None   # knot indices to mesh indices (on demand)
 
     def __str__(self):
         return '<KnotVector p=%d sz=%d>' % (self.p, self.kv.size)
@@ -105,10 +89,22 @@ class KnotVector:
         return 'KnotVector(%s, %s)' % (repr(self.kv), repr(self.p))
 
     def __eq__(self, other):
-        if self.p == other.p and len(self.kv) == len(other.kv):
-            if np.allclose(self.kv, other.kv, atol=1e-8, rtol=1e-8):
-                return True
+        return (
+            self.p == other.p and
+            len(self.kv) == len(other.kv) and
+            np.allclose(self.kv, other.kv, atol=1e-8, rtol=1e-8)
+        )
+
+    def __le__(self, other):
+        if self.p <= other.p:
+            idx = np.searchsorted(other.mesh, self.mesh)
+            if np.all(idx < len(other.mesh)) and np.allclose(other.mesh[idx],self.mesh, atol=1e-8, rtol=1e-8):
+                if np.all(other.m[idx] >= self.m + (other.p - self.p)):
+                    return True        
         return False
+
+    def __lt__(self, other):
+        return (self <= other) and not (self == other)       
 
     @property
     def numknots(self):
@@ -147,7 +143,6 @@ class KnotVector:
     @property
     def mesh(self):
         """Return the mesh, i.e., the vector of unique knots in the knot vector."""
-        self._ensure_mesh()
         return self._mesh
 
     def mesh_support_idx(self, j):

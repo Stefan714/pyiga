@@ -255,7 +255,7 @@ class PardisoSolverWrapper(scipy.sparse.linalg.LinearOperator):
     def toarray(self):
         return self._matmat(np.eye(self.shape[1]))
 
-def make_solver(B, symmetric=False, spd=False):
+def make_solver(B, symm=False, spd=False):
     """Return a :class:`LinearOperator` that acts as a linear solver for the
     (dense or sparse) square matrix `B`.
 
@@ -263,13 +263,13 @@ def make_solver(B, symmetric=False, spd=False):
     If `B` is symmetric and positive definite, pass ``spd=True``.
     """
     if spd:
-        symmetric = True
+        symm = True
 
     if scipy.sparse.issparse(B):
         if HAVE_MKL:
             # use MKL Pardiso
             mtype = 11   # real, nonsymmetric
-            if symmetric:
+            if symm:
                 mtype = 2 if spd else -2
             solver = pyMKL.pardisoSolver(B, mtype)
             solver.factor()
@@ -284,7 +284,7 @@ def make_solver(B, symmetric=False, spd=False):
             return scipy.sparse.linalg.LinearOperator(B.shape, dtype=B.dtype,
                         matvec=spLU.solve, matmat=spLU.solve)
     else:
-        if symmetric:
+        if symm:
             chol = scipy.linalg.cho_factor(B, check_finite=False)
             solve = lambda x: scipy.linalg.cho_solve(chol, x, check_finite=False)
             return scipy.sparse.linalg.LinearOperator(B.shape, dtype=B.dtype,

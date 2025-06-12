@@ -1399,9 +1399,9 @@ class Multipatch:
         dofs2 = boundary_dofs(self.mesh.patches[p2][0][0], bdspec2, ravel=True, flip=flip)
                 
         #check for hierarchy of the boundary knot vectors. currently only supports knot vectors with equal degree.
-        if all([bspline.is_sub_space(kv1,kv2) for kv1, kv2 in zip(bkv1,bkv2)]):
+        if all([kv1<=kv2 for kv1, kv2 in zip(bkv1,bkv2)]):
             pass
-        elif all([bspline.is_sub_space(kv2,kv1) for kv1, kv2 in zip(bkv1,bkv2)]):      
+        elif all([kv2<=kv1 for kv1, kv2 in zip(bkv1,bkv2)]):      
             self.intfs.remove(((p1,2*bdspec1[0][0]+bdspec1[0][1],s1),(p2,2*bdspec2[0][0]+bdspec2[0][1],s2),flip))
             self.intfs.add(((p2,2*bdspec2[0][0]+bdspec2[0][1],s2),(p1,2*bdspec1[0][0]+bdspec1[0][1],s1),flip))
             p1, p2 = p2, p1
@@ -1848,7 +1848,7 @@ class Multipatch:
             cax = divider.append_axes("right", size="5%", pad=0.05)
             fig.colorbar(im, cax=cax)
     
-        pts = np.vstack([geo.control_points()[:, :2] for (_, geo), _ in self.mesh.patches])
+        pts = np.vstack([geo.coeffs[:, :2] for (_, geo), _ in self.mesh.patches])
         margin = lambda v: 0.05 * v if v > 0 else 0.1
         ax.set_xlim(pts[:, 0].min() - margin(pts[:, 0].ptp()), pts[:, 0].max() + margin(pts[:, 0].ptp()))
         ax.set_ylim(pts[:, 1].min() - margin(pts[:, 1].ptp()), pts[:, 1].max() + margin(pts[:, 1].ptp()))
