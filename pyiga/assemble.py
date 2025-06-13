@@ -1823,37 +1823,62 @@ class Multipatch:
         return I
 
     def plot(self, u, cmap=plt.cm.jet, cbar=True, mesh=False, contour=False, **kwargs):
-    
-        assert self.sdim == 2, 'visualization only possible for 2D.'
-        assert len(u) in {self.numdofs, self.N_ofs[-1]}, 'wrong size of coefficient vector.'
-    
+        import matplotlib.pyplot as plt
+        # 1) Pull out axis or make one
         ax = kwargs.pop('axis', None)
-        fig = ax.figure if ax else plt.figure(figsize=kwargs.get('figsize', (5,5)))
-        if not ax: ax = plt.axes()
-    
+        fig = ax.figure if ax else plt.figure(figsize=kwargs.get('figsize',(5,5)))
+        if not ax:
+            ax = plt.axes()
+        original_axes = list(fig.axes)
+        plt.sca(ax)
+
         u_funcs = self.function(u)
-        u_min, u_max = (kwargs.get('range') or (min(u), max(u)))
-        if abs(u_max - u_min) < 1e-12:
-            mid = (u_min + u_max)/2
-            u_min, u_max = mid - 1e-12, mid + 1e-12
+        u_min, u_max = kwargs.pop('range', (min(u),max(u)))
     
-        if mesh: self.mesh.draw(fig=fig)
-    
+        if mesh:
+            try:
+                self.mesh.plotmesh(fig=fig, axis=ax)
+            except TypeError:
+                plt.sca(ax)
+                self.mesh.plotmesh(fig=fig)
+        
         im = None
-        for (u_func, ((_, geo), _)) in zip(u_funcs, self.mesh.patches):
-            im, _ = vis.plot_field(u_func, geo, vmin=u_min, vmax=u_max, cmap=cmap, contour=contour)
+        for u_func, ((_,geo),_) in zip(u_funcs, self.mesh.patches):
+            try:
+                im, _ = vis.plot_field(u_func, geo, vmin=u_min, vmax=u_max, cmap=cmap, contour=contour, ax=ax)
+            except TypeError:
+                plt.sca(ax)
+                im, _ = vis.plot_field(u_func, geo, vmin=u_min, vmax=u_max, cmap=cmap, contour=contour)
     
+        # 5) Compute your limits/aspect as before
+        bboxes = [geo.bounding_box() for (_,geo),_ in self.mesh.patches]
+        xmin = min(b[0][0] for b in bboxes); xmax = max(b[0][1] for b in bboxes)
+        ymin = min(b[1][0] for b in bboxes); ymax = max(b[1][1] for b in bboxes)
+        margin = lambda v: 0.05*v if v>0 else 0.1
+        x_m = margin(xmax-xmin); y_m = margin(ymax-ymin)
+        ax.set_xlim(xmin - x_m, xmax + x_m)
+        ax.set_ylim(ymin - y_m, ymax + y_m)
+        ax.set_aspect(kwargs.pop('aspect','equal'), adjustable='box')
+    
+        # 6) Add fixed‐width colorbar to the right of *this* ax
         if cbar and im is not None:
-            divider = make_axes_locatable(ax)
-            cax = divider.append_axes("right", size="5%", pad=0.05)
+            # fixed inch sizes
+            cw_in, pad_in = kwargs.pop('cbar_width',0.3), kwargs.pop('cbar_pad',0.05)
+            fig_w = fig.get_figwidth()
+            cw, pad = cw_in/fig_w, pad_in/fig_w
+            pos = ax.get_position()
+            cax = fig.add_axes([pos.x0+pos.width+pad, pos.y0, cw, pos.height])
             fig.colorbar(im, cax=cax)
     
-        pts = np.vstack([geo.coeffs[:, :2] for (_, geo), _ in self.mesh.patches])
-        margin = lambda v: 0.05 * v if v > 0 else 0.1
-        ax.set_xlim(pts[:, 0].min() - margin(pts[:, 0].ptp()), pts[:, 0].max() + margin(pts[:, 0].ptp()))
-        ax.set_ylim(pts[:, 1].min() - margin(pts[:, 1].ptp()), pts[:, 1].max() + margin(pts[:, 1].ptp()))
-        ax.axis('scaled')
-
+            # 7) Shift *only* the original other axes (e.g. the right subplot)
+            shift = cw + pad
+            for other in original_axes:
+                if other is ax:
+                    continue
+                op = other.get_position()
+                # if its left edge started to the right of our ax, bump it over
+                if op.x0 >= pos.x0 + pos.width - 1e-6:
+                    other.set_position([op.x0 + shift, op.y0, op.width, op.height])
         return ax
         
     def plot_quiver(self, u, mesh=False, axis='scaled', **kwargs):
@@ -1868,8 +1893,10 @@ class Multipatch:
     def function(self, u):
         if len(u)==self.numdofs:
             u_loc=self.Basis@u
-        else:
+        elif len(u)==self.N_ofs[-1]:
             u_loc = u
+        else:
+            raise ValueError('dimension mismatch')
         return [geometry.BSplineFunc(kvs,u_loc[self.N_ofs[p]:self.N_ofs[p+1]]) for p, kvs in enumerate(self.mesh.kvs)]
     
     def sanity_check(self):

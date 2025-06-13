@@ -8,6 +8,52 @@ cimport cython
 import numpy as np
 cimport numpy as np
 
+from libc.math cimport fabs
+
+@cython.cdivision(True)
+@cython.boundscheck(False)
+@cython.wraparound(False)
+cpdef bint pyx_knots_leq(double[:] kv1, int n1, int p1, double a1, double b1,
+                         double[:] kv2, int n2, int p2, double a2, double b2):
+    cdef int i1=0, i2=0
+    cdef int m1, m2, delta_p=p2-p1
+    cdef double tol=1e-8
+    if delta_p<0: return 0
+    if a1 > a2 + tol or b2 > b1 + tol: return 0
+
+    while i1 < n1 and i2 < n2:
+        if kv2[i2] < a2 - tol or kv2[i2] > b2 + tol:
+            i2 += 1
+            continue
+            
+        while i2 < n2 and kv2[i2] < kv1[i1] - tol:
+            i2 += 1
+        if i2 == n2:
+            break
+
+        while i1 < n1 and kv1[i1] < kv2[i2] - tol:
+            i1 += 1
+        if i1 == n1:
+            break
+
+        if fabs(kv1[i1] - kv2[i2]) > tol:
+            return 0
+
+        m1 = 1
+        while (i1 + m1) < n1 and fabs(kv1[i1 + m1] - kv1[i1]) < tol:
+            m1 += 1
+
+        m2 = 1
+        while (i2 + m2) < n2 and fabs(kv2[i2 + m2] - kv2[i2]) < tol:
+            m2 += 1
+
+        if m2 < m1 + delta_p:
+            return 0
+
+        i1 += m1
+        i2 += m2
+    return 1
+
 @cython.cdivision(True)
 @cython.boundscheck(False)
 @cython.wraparound(False)

@@ -9,7 +9,7 @@ import scipy.sparse.linalg
 import scipy.interpolate
 
 from .tensor import apply_tprod, _multi_kron
-from . import solvers
+from . import solvers, bspline_cy
 
 def _parse_bdspec(bdspec, dim):
     if bdspec == 'left':
@@ -89,22 +89,22 @@ class KnotVector:
         return 'KnotVector(%s, %s)' % (repr(self.kv), repr(self.p))
 
     def __eq__(self, other):
-        return (
-            self.p == other.p and
-            len(self.kv) == len(other.kv) and
-            np.allclose(self.kv, other.kv, atol=1e-8, rtol=1e-8)
-        )
+        """Returns True iff the spaces spanned by the respective knot vectors is the same, i.e., the knot vectors are the same."""
+        return self.p == other.p and len(self.kv) == len(other.kv) and np.allclose(self.kv, other.kv, atol=1e-8, rtol=1e-8)
 
     def __le__(self, other):
-        if self.p <= other.p:
-            idx = np.searchsorted(other.mesh, self.mesh)
-            if np.all(idx < len(other.mesh)) and np.allclose(other.mesh[idx],self.mesh, atol=1e-8, rtol=1e-8):
-                if np.all(other.m[idx] >= self.m + (other.p - self.p)):
-                    return True        
-        return False
+        return bspline_cy.pyx_knots_leq(self.kv,  len(self.kv),  self.p,  *self.support(),
+                                        other.kv, len(other.kv), other.p, *other.support())
 
     def __lt__(self, other):
-        return (self <= other) and not (self == other)       
+        """Returns True iff the B-spline space spanned by the first knot vector is a subspace of the one spanned by the second knot vector."""
+        return (self <= other) and not (self == other)   
+
+    def __ge__(self, other):
+        return not(self < other)
+
+    def __gt__(self, other):
+        return not(self <= other)
 
     @property
     def numknots(self):
