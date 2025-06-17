@@ -12,26 +12,36 @@ from .tensor import apply_tprod, _multi_kron
 from . import solvers, bspline_cy
 
 def _parse_bdspec(bdspec, dim):
-    if bdspec == 'left':
-        bd = ((dim - 1, 0),)
-    elif bdspec == 'right':
-        bd = ((dim - 1, 1),)
-    elif bdspec == 'bottom':
-        bd = ((dim - 2, 0),)
-    elif bdspec == 'top':
-        bd = ((dim - 2, 1),)
-    elif bdspec == 'front':
-        bd = ((dim - 3, 0),)
-    elif bdspec == 'back':
-        bd = ((dim - 3, 1),)
+    assert isinstance(dim, (int, np.integer)), 'Dimension is not an integer.'
+
+    if isinstance(bdspec, str):
+        match bdspec:
+            case 'left':   b = np.array([[dim - 1, 0]], dtype='i')
+            case 'right':  b = np.array([[dim - 1, 1]], dtype='i')
+            case 'bottom': b = np.array([[dim - 2, 0]], dtype='i')
+            case 'top':    b = np.array([[dim - 2, 1]], dtype='i')
+            case 'front':  b = np.array([[dim - 3, 0]], dtype='i')
+            case 'back':   b = np.array([[dim - 3, 1]], dtype='i')
+            case _: raise ValueError(f"Unknown boundary specifier string: {bdspec}")
+    
+    elif isinstance(bdspec, (int, np.integer)):
+        b = np.array([[bdspec // 2, bdspec % 2]], dtype='i')
+
+    elif isinstance(bdspec, np.ndarray):
+        b = np.asarray(bdspec, dtype='i')
+        if b.ndim == 1 and b.size == 2:
+            b = b.reshape(1, 2)
+        elif b.ndim != 2 or b.shape[1] != 2:
+            raise ValueError(f"Invalid ndarray shape for bdspec: {b.shape}")
+
     else:
-        bd=bdspec
-        if not all((side in (0,1) for _, side in bd)):
-            raise ValueError('invalid bdspec ' + str(bd))
-        if any(( ax < 0 or ax >= dim for ax, _ in bd)):
-            raise ValueError('invalid bdspec %s for space of dimension %d'
-                % (bdspec, dim))
-    return bd
+        raise TypeError(f"Unsupported type for bdspec: {type(bdspec)}")
+
+    # Sanity checks
+    assert b[:, 0].max() < dim, 'Dimension error in the boundary indication.'
+    assert np.all((b[:, 1] >= 0) & (b[:, 1] <= 1)), 'Side should be 0 or 1'
+
+    return b
 
 def unit(n,k):
     return np.eye(1,n,k).ravel()
@@ -73,10 +83,11 @@ class KnotVector:
 
     def __init__(self, knots, p):
         """Construct an open B-spline knot vector with given `knots` and degree `p`."""
-        self.kv = knots
+        self.kv = knots.astype(float)
+        self.p = p
         # sanity check: knots should be monotonically increasing
         assert np.all(self.kv[1:] - self.kv[:-1] >= 0), 'knots should be increasing'
-        self.p = p
+        assert isinstance(p,int), 'polynomial degree must be an integer'
         assert np.isclose(self.kv[:p+1], self.kv[0]).all() and np.isclose(self.kv[-(p+1):], self.kv[-1]).all(), 'knots should be p-open'
         self._mesh, self._knots_to_mesh, self.m = np.unique(self.kv,return_inverse=True, return_counts=True)
         assert (self.m<=p+1).all(), 'multiplicites exceed degree by more than 1'
@@ -1196,9 +1207,9 @@ class BSplineFunc(_BaseSplineFunc):
             return _BaseGeoFunc.boundary(self, bdspec)
         
         bdspec = _parse_bdspec(bdspec, self.sdim)
-        axis, sides = tuple(ax for ax, _ in bdspec), tuple(-idx for _, idx in bdspec)
+        axis, sides = bdspec[:,0], bdspec[:,1]
 
-        assert all([0 <= ax < self.sdim for ax in axis]), 'Invalid axis'
+        assert ((0 <= axis) & (axis < self.sdim)).all(), 'Invalid axis'
         slices = self.sdim * [slice(None)]
         for ax, idx in zip(axis, sides):
             slices[ax] = idx

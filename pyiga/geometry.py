@@ -222,15 +222,16 @@ class NurbsFunc(bspline._BaseSplineFunc):
         if flip is None:
             flip = self.sdim*(False,)
         self.flip = tuple(flip)
+
+        b = bspline._parse_bdspec(bdspec, self.sdim)
         
         if self._support_override:
             # if we have reduced support, the boundary may not be
             # interpolatory; return a custom function
             return bspline._BaseGeoFunc.boundary(self, bdspec, flip=flip)
-
-        bdspec = bspline._parse_bdspec(bdspec, self.sdim)
-        axis, sides = tuple(ax for ax, _ in bdspec), tuple(-idx for _, idx in bdspec)
-        assert all([0 <= ax < self.sdim for ax in axis]), 'Invalid axis'
+        
+        axis, sides = b[:,0], -b[:,1]
+        assert ((0 <= axis) & (axis < self.sdim)).all(), 'Invalid axis'
         slices = self.sdim * [slice(None)]
         for ax, idx in zip(axis, sides):
             slices[ax] = idx
@@ -428,15 +429,15 @@ class _BoundaryFunction(bspline._BaseGeoFunc):
     """
     def __init__(self, f, bdspec, flip = None):
         self.f = f
-        bdspec = bspline._parse_bdspec(bdspec, f.sdim)
-        self.axis, self.sides = tuple(zip(*sorted(bdspec)))
-        self.fixed_coord = {ax: f.support[ax][idx] for ax, idx in bdspec}
+        b = bspline._parse_bdspec(bdspec, f.sdim)
+        self.axis, self.sides = b[:,0], b[:,1]
+        self.fixed_coord = {ax: f.support[ax][idx] for ax, idx in b}
         self.support = list(f.support)
         for ax in np.flip(self.axis):
             del self.support[ax]
         self.support=tuple(self.support)
         self.dim = f.dim
-        self.sdim = f.sdim - len(bdspec)
+        self.sdim = f.sdim - b.shape[0]
         
         if flip is None:
             flip = self.sdim*(False,)

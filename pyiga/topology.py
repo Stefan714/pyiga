@@ -7,24 +7,24 @@ import numpy as np
 import matplotlib
 import matplotlib.pyplot as plt
 
-def face_indices(n, m, zipped=True):
-    """Returns all m-dimensional boundary manifolds of an n-dimensional hypercube.
+# def face_indices(n, m, zipped=True):
+#     """Returns all m-dimensional boundary manifolds of an n-dimensional hypercube.
     
-    The manifolds are represented by a list of pairs ('ax', 'side') where 'ax' is an integer 
-    describing which axis we set to 'side' which is 0 or 1.
+#     The manifolds are represented by a list of pairs ('ax', 'side') where 'ax' is an integer 
+#     describing which axis we set to 'side' which is 0 or 1.
     
-    Optionally a parameter 'zipped' can be passed, which is by default 'True'. If 'zipped' is set to False,
-    the manifolds are given as 2 tuples ('axis', 'sides') which saves the 'axis' and corresponding 'sides' information seperately.
-    """
-    S=[]
-    for comb in it.combinations(range(n),n-m):
-        for i in it.product(*(n-m)*((0,1),)):
-            #print(list(zip(comb,i)))
-            if zipped:
-                S.append(tuple(zip(comb,i)))
-            else:
-                S.append((comb, i))
-    return S
+#     Optionally a parameter 'zipped' can be passed, which is by default 'True'. If 'zipped' is set to False,
+#     the manifolds are given as 2 tuples ('axis', 'sides') which saves the 'axis' and corresponding 'sides' information seperately.
+#     """
+#     S=[]
+#     for comb in it.combinations(range(n),n-m):
+#         for i in it.product(*(n-m)*((0,1),)):
+#             #print(list(zip(comb,i)))
+#             if zipped:
+#                 S.append(tuple(zip(comb,i)))
+#             else:
+#                 S.append((comb, i))
+#     return S
 
 def bdspec_to_int(bdspec):
     if isinstance(bdspec, int):
@@ -104,9 +104,9 @@ class PatchMesh:
                 
             # add interfaces between patches
             conn, conf_interfaces = assemble.detect_interfaces(patches)
-            #assert conn, 'patch graph is not connected!'
+            assert conn, 'patch graph is not connected!'
             for (p0, bd0, p1, bd1, (perm, flip)) in conf_interfaces:
-                self.add_interface(p0, bdspec_to_int(bd0), 0, p1, bdspec_to_int(bd1), 0, flip)
+                self.add_interface(p0, bd0, 0, p1, bd1, 0, flip)
             if interfaces:
                 D={}
                 for (p, b, s),(p1, b1, s1),flip in interfaces:
@@ -199,18 +199,28 @@ class PatchMesh:
         return {p:(p,) for p in patches}
             
     def set_boundary_id(self, boundary_id):
-        marked = set().union(*boundary_id.values())
+        B = {key:set() for key in boundary_id}
+        for key in boundary_id:
+            for elem in boundary_id[key]:
+                match elem[1]:
+                    case 'bottom': B[key].add((elem[0],0))
+                    case 'top': B[key].add((elem[0],1))
+                    case 'left': B[key].add((elem[0],2))
+                    case 'right': B[key].add((elem[0],3))
+                    case _: continue
+                        
+        marked = set().union(*B.values())
         empty_keys =[]
         for key in self.outer_boundaries:
             self.outer_boundaries[key]=self.outer_boundaries[key]-marked
             if len(self.outer_boundaries[key])==0: empty_keys.append(key)
         for key in empty_keys:
             del self.outer_boundaries[key]
-        for key in boundary_id:
+        for key in B:
             if key in self.outer_boundaries:
-                self.outer_boundaries[key]=self.outer_boundaries[key].union(boundary_id[key])
+                self.outer_boundaries[key]=self.outer_boundaries[key].union(B[key])
             else:
-                self.outer_boundaries[key]=boundary_id[key]
+                self.outer_boundaries[key]=B[key]
         #self.outer_boundaries.update(boundary_id)
         
     def set_domain_id(self, domain_id):
@@ -331,9 +341,8 @@ class PatchMesh:
             
         try:
             # is the vertex already contained in the boundary?
-            vtx_idx = self.boundaries(p)[1][b].index(xi)
-            #print(1)
-        except ValueError:
+            vtx_idx = np.where(np.isclose(self.boundaries(p)[1][b], xi))[0][0]
+        except IndexError:
             # otherwise, we need to insert it, split the segments and insert a new T_node (or corner at the boundary of the domain)
             seg = self._find_boundary_split_index(p, b, xi, new_vtx)
             self.split_boundary_segment(p, b, seg, new_vtx, xi, new_p)
@@ -593,7 +602,7 @@ class PatchMesh:
             if bcolor is not None:
                 bcol=bcolor[key]
             for (p,b) in self.outer_boundaries[key]:
-                vis.plot_geo(self.geos[p].boundary([assemble.int_to_bdspec(b)]), linewidth=bwidth, color=bcol, zorder=10000, axis=ax)
+                vis.plot_geo(self.geos[p].boundary(bspline._parse_bdspec(bdspec, 2)), linewidth=bwidth, color=bcol, zorder=10000, axis=ax)
 
         if patch_idx:
             for p in range(len(self.patches)):        # annotate patch indices

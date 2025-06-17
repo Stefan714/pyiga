@@ -430,9 +430,9 @@ def boundary_dofs(kvs, bdspec=None, m=None, ravel=False, swap=None, flip=None):
     n = len(kvs)
     if m is None:
         m = n-1
-    if bdspec:
-        bdspec = bspline._parse_bdspec(bdspec, len(kvs))
-        axis, sides = tuple(ax for ax, _ in bdspec), tuple(-idx for _, idx in bdspec)
+    if bdspec is not None:
+        b = bspline._parse_bdspec(bdspec, len(kvs))
+        axis, sides = b[:,0], -b[:,1]
         N = tuple(kv.numdofs for kv in kvs)
         return slice_indices(axis, sides, N, ravel=ravel, swap=swap, flip=flip)
     else:
@@ -446,10 +446,9 @@ def boundary_kv(kvs, bdspec, swap=None, flip=None):
     kvs=list(kvs)
     if flip is None:
         flip=(len(kvs)-1)*(False,)
-    bdspec = bspline._parse_bdspec(bdspec, len(kvs))
-    axis, sides = tuple(ax for ax, _ in bdspec), tuple(-idx for _, idx in bdspec)
-    not_axis = tuple(np.setdiff1d(range(len(kvs)),axis))
-    #bkvs = (bspline.KnotVector(1-np.flip(kv.kv),kv.p) if flp else kv for kv, flp in zip(not_axis,flip))
+    b = bspline._parse_bdspec(bdspec, len(kvs))
+    axis, sides = b[:,0], -b[:,1]
+    #not_axis = tuple(np.setdiff1d(np.arange(len(kvs)),axis))
     for ax in sorted(axis,reverse=True):
         del kvs[ax]
     if flip is not None:
@@ -459,19 +458,13 @@ def boundary_kv(kvs, bdspec, swap=None, flip=None):
     if swap is not None:
         kvs=[kvs[i] for i in swap]
     return tuple(kvs)
-        
-#     bdaxes, bdsides = [bdspec[0] for bdspec in bdspecs], [bdspec[1] for bdspec in bdspecs]
-#     idx = [np.arange(k_+1) if bdsides[i]==0 else np.arange(-1,-k_-2,-1) for i,k_ in enumerate(k)]
-#     dofs=[slice_indices(bdaxes[0], i, N, ravel=ravel) for i in idx[0]]
-#     dofs=[dofs_[idx[1]] for dofs_ in dofs]
-#     return np.concatenate(dofs)
 
 def boundary_cells(kvs, bdspec, swap=None, ravel=False):
     """Indices of the cells which lie on the given boundary of the tensor
     product basis `kvs`. Output format is as for :func:`slice_indices`.
     """
-    bd = bspline._parse_bdspec(bdspec, len(kvs))
-    axis, sides = tuple(ax for ax, _ in bd), tuple(-idx for _, idx in bd)
+    b = bspline._parse_bdspec(bdspec, len(kvs))
+    axis, sides = b[:,0], -b[:,1]
     N = tuple(kv.numspans for kv in kvs)
     return slice_indices(bdax, idx, N, swap=swap, ravel=ravel)
 
@@ -518,8 +511,8 @@ def compute_dirichlet_bc(kvs, geo, bdspec, dir_func):
         dofs within the tensor product basis which lie along the Dirichlet
         boundary and their computed values, respectively.
     """
-    bdspec = bspline._parse_bdspec(bdspec, len(kvs))
-    axis, sides = tuple(ax for ax, _ in bdspec), tuple(-idx for _, idx in bdspec)
+    b = bspline._parse_bdspec(bdspec, len(kvs))
+    axis, sides = b[:,0], -b[:,1]
     # get basis for the boundary face
     bdbasis = list(kvs)
     assert len(bdbasis) == geo.sdim, 'Invalid dimension of geometry'
@@ -527,7 +520,7 @@ def compute_dirichlet_bc(kvs, geo, bdspec, dir_func):
         del bdbasis[ax]
 
     # get boundary geometry and interpolate dir_func
-    bdgeo = geo.boundary(bdspec)
+    bdgeo = geo.boundary(b)
     from .approx import interpolate
     if np.isscalar(dir_func):
         const_value = dir_func
@@ -608,8 +601,8 @@ def compute_initial_condition_01(kvs, geo, bdspec, g0, g1, physical=True):
         dofs within the tensor product basis which lie along the initial face
         of the space-time cylinder and their computed values, respectively.
     """
-    bdspec = bspline._parse_bdspec(bdspec, len(kvs))
-    bdax, bdside = bdspec
+    b = bspline._parse_bdspec(bdspec, len(kvs))
+    bdax, bdside = b[:,0][0], b[:,1][0]
 
     bdbasis = list(kvs)
     del bdbasis[bdax]
@@ -992,7 +985,9 @@ def _Jac_to_boundary_matrix(bdspec, dim):
     to the Jacobian for the boundary `bdspec`. Signs are chosen such that the resulting normal
     vector points outside assuming that the patch has positive orientation (`det(J) > 0`).
     """
-    ax, side = bdspec
+    b = bspline._parse_bdspec(bdspec,dim)
+    assert b.shape[0]==1, 'not implemented for boundaries of dimension < dim - 1'
+    ax, side = b[:,0][0], b[:,1][0]
     ax = dim - 1 - ax       # last axis refers to x coordinate
     I = np.eye(dim)
     # change the signs so that normal vector for lower limit has correct orientation
@@ -1027,8 +1022,8 @@ def instantiate_assembler(problem, kvs, args, bfuns, boundary=None, updatable=[]
             # parse the bdspec and pass both `boundary` and the `Jac_to_boundary` matrix
             # to the assembler
             bdspec = bspline._parse_bdspec(boundary, len(kvs))
-            used_args['boundary'] = bdspec[0]
-            args['Jac_to_boundary'] = _Jac_to_boundary_matrix(bdspec[0], len(kvs))
+            used_args['boundary'] = bdspec
+            args['Jac_to_boundary'] = _Jac_to_boundary_matrix(bdspec, len(kvs))
 
         for inp in itertools.chain(problem.inputs().keys(), problem.parameters().keys()):
             if inp not in args:
@@ -1240,15 +1235,15 @@ def _find_matching_boundaries(G1, G2):
     # find all interfaces which match between G1 and G2
     assert G1.sdim == G2.sdim and G1.dim == G2.dim
     #all_bds = list(itertools.product(range(G1.sdim), (0,1)))
-    all_bds = list(itertools.product(range(G1.sdim), (0,1)))
+    #all_bds = list(itertools.product(range(G1.sdim), (0,1)))
     matches = []
-    for bdspec1 in all_bds:
-        bd1 = G1.boundary((bdspec1,))
-        for bdspec2 in all_bds:
-            bd2 = G2.boundary((bdspec2,))
+    for b1 in range(2*G1.sdim):
+        bd1 = G1.boundary(b1)
+        for b2 in range(2*G1.sdim):
+            bd2 = G2.boundary(b2)
             match, conn_info = _check_geo_match(bd1, bd2)
             if match:
-                matches.append(((bdspec1,), (bdspec2,), conn_info))
+                matches.append((b1, b2, conn_info))
     return matches
 
 def detect_interfaces(patches):
@@ -1278,8 +1273,9 @@ def detect_interfaces(patches):
             maxdiam = max(diams[p1], diams[p2])
             if mindist < 1e-10 * maxdiam:    # do the bounding boxes touch?
                 matches = _find_matching_boundaries(patches[p1][1], patches[p2][1])
-                for (bd1, bd2, conn_info) in matches:
-                    interfaces.append((p1, bd1, p2, bd2, conn_info))
+                dim1, dim2 = patches[p1][1].sdim, patches[p2][1].sdim
+                for (b1, b2, conn_info) in matches:
+                    interfaces.append((p1, b1, p2, b2, conn_info))
                 if matches:
                     patch_graph.add_edge(p1, p2)
 
@@ -1339,7 +1335,7 @@ class Multipatch:
                     self.intfs.add(((p1,bd1,s1),(p2,bd2,s2),flip))
         
             t=time.time()
-            C=[self.join_boundaries(p1, (int_to_bdspec(bd1),), s1 , p2, (int_to_bdspec(bd2),), s2, flip) for ((p1,bd1,s1),(p2,bd2,s2), flip) in self.intfs.copy()]
+            C=[self.join_boundaries(p1, bspline._parse_bdspec(bd1,self.sdim), s1 , p2, bspline._parse_bdspec(bd2,self.sdim), s2, flip) for ((p1,bd1,s1),(p2,bd2,s2), flip) in self.intfs.copy()]
             print('setting up constraints took '+str(time.time()-t)+' seconds.')
             for (p,b,_),(p2,b2,_),_ in self.intfs:
                 if (p,b) not in self.L_intfs:
