@@ -42,14 +42,14 @@ def mp_resPois(MP, uh, f=0., a=1., M=(0.,0.), divMaT =0., neu_data={}, **kwargs)
     t=time.time()
     for i,((p1,b1,_), (p2,b2,_), flip) in enumerate(MP.intfs):
         ((kvs1, geo1), _), ((kvs2, geo2), _) = MP.mesh.patches[p1], MP.mesh.patches[p2]
-        bdspec1, bdspec2 = [assemble.int_to_bdspec(b1)], [assemble.int_to_bdspec(b2)]
+        bdspec1, bdspec2 = bspline._parse_bdspec(b1,2), bspline._parse_bdspec(b2,2)
         bkv1, bkv2 = assemble.boundary_kv(kvs1, bdspec1), assemble.boundary_kv(kvs2, bdspec2)
         geo = geo2.boundary(bdspec2)
         kv0 = tuple([bspline.KnotVector(kv.mesh, 0) for kv in bkv2])
         h = bkv2[0].meshsize_max()*np.linalg.norm([b-a for a,b in geo.bounding_box(full=True)])
-        #h = np.linalg.norm([(b-a) for (a,b) in geo.bounding_box()])
-        uh1_grad = geometry.BSplineFunc(kvs1, uh_loc[MP.N_ofs[p1]:MP.N_ofs[p1+1]]).transformed_jacobian(geo1).boundary(bdspec1, flip=flip) #physical gradient of uh on patch 1 (flipped if needed)
-        uh2_grad = geometry.BSplineFunc(kvs2, uh_loc[MP.N_ofs[p2]:MP.N_ofs[p2+1]]).transformed_jacobian(geo2).boundary(bdspec2)            #physical gradient of uh on patch 2
+
+        uh1_grad = geometry.BSplineFunc(kvs1, uh_loc[MP.N_ofs[p1]:MP.N_ofs[p1+1]]).transformed_jacobian(geo1).boundary(bdspec1, flip=flip) 
+        uh2_grad = geometry.BSplineFunc(kvs2, uh_loc[MP.N_ofs[p2]:MP.N_ofs[p2+1]]).transformed_jacobian(geo2).boundary(bdspec2)            
         J = np.sum(assemble.assemble('((inner((a1 * uh1_grad + Ma1) - (a2 * uh2_grad + Ma2), n) )**2 * v ) * ds', kv0, geo=geo, 
                                      a1=a[MP.mesh.patch_domains[p1]], a2=a[MP.mesh.patch_domains[p2]], uh1_grad=uh1_grad, uh2_grad=uh2_grad,
                                      Ma1=M[MP.mesh.patch_domains[p1]], Ma2=M[MP.mesh.patch_domains[p2]], **kwargs))
@@ -61,7 +61,7 @@ def mp_resPois(MP, uh, f=0., a=1., M=(0.,0.), divMaT =0., neu_data={}, **kwargs)
         g = neu_data[bd]
         for (p,b) in MP.mesh.outer_boundaries[bd]:
             ((kvs, geo), _) = MP.mesh.patches[p]
-            bdspec = [assemble.int_to_bdspec(b)]
+            bdspec = bspline._parse_bdspec(b,2)
             bkv = assemble.boundary_kv(kvs, bdspec)
             kv0 = tuple([bspline.KnotVector(kv.mesh, 0) for kv in bkv])
             geo_b = geo.boundary(bdspec)
@@ -107,7 +107,7 @@ def mp_resPois2(MP, uh, f=0., a=1., M=(0.,0.), divM = 0., neu_data={}, **kwargs)
     t=time.time()
     for i,((p1,b1,_), (p2,b2,_), flip) in enumerate(MP.intfs):
         ((kvs1, geo1), _), ((kvs2, geo2), _) = MP.mesh.patches[p1], MP.mesh.patches[p2]
-        bdspec1, bdspec2 = [assemble.int_to_bdspec(b1)], [assemble.int_to_bdspec(b2)]
+        bdspec1, bdspec2 = bspline._parse_bdspec(b1,2), bspline._parse_bdspec(b2,2)
         bkv1, bkv2 = assemble.boundary_kv(kvs1, bdspec1), assemble.boundary_kv(kvs2, bdspec2)
         geo = geo2.boundary(bdspec2)
         kvs02 = tuple([bspline.KnotVector(kv.mesh, 0) for kv in kvs2])
@@ -128,7 +128,7 @@ def mp_resPois2(MP, uh, f=0., a=1., M=(0.,0.), divM = 0., neu_data={}, **kwargs)
         for (p,b) in MP.mesh.outer_boundaries[bd]:
             ((kvs, geo), _) = MP.mesh.patches[p]
             kvs0 = tuple([bspline.KnotVector(kv.mesh, 0) for kv in kvs0])
-            bdspec = [assemble.int_to_bdspec(b)]
+            bdspec = bspline._parse_bdspec(b,2)
             bkv0 = assemble.boundary_kv(kvs0, bdspec)
             geo_b = geo.boundary(bdspec)
             d=MP.mesh.patch_domains[p]
@@ -154,25 +154,6 @@ def doerfler_mark(x, theta=0.8, TOL=0.01):
     values of x have norm of at least theta * norm(errors). Requires sorting the array x.
     Indices of entries that have relative error of TOL to the breakpoint entry are also added to the output"""
     return adaptive_cy.pyx_doerfler_mark(x, len(x), theta, TOL)
-
-# def quick_mark(x, theta=0.8, idx = None, l=None, u=None , v=None):
-#     """Given an array of x, return a minimal array of indices such that the indexed
-#     values of x have norm of at least theta * norm(errors)**2. Does not require sorting the array x.
-#     TODO: add checks for when values are equal in the array, see Praetorius 2019 paper."""
-#     if idx is None: idx=np.arange(len(x))
-#     if l is None: l=0
-#     if u is None: u=len(x)-1
-#     if v is None: v=theta*x@x
-        
-#     p = l+(u-l)//2                                                           #pivot for partition is chosen as the median
-#     idx[l:(u+1)] = idx[l:(u+1)][np.argpartition(-x[idx[l:(u+1)]],p-l)]       #partition of subarray from l to u
-#     sigma = x[idx[l:p]]@x[idx[l:p]]
-#     if sigma > v:                                                            #if the norm of the larger entries exceeds the total norm we didn't find the MINIMAL set of entries yet.
-#         return quick_mark(x, theta, idx, l, p-1, v)
-#     elif sigma + x[idx[p]]**2 > v:                                           #if adding the p-th value (the next biggest entry we can add) suddenly satisfies the condition we are done.
-#         return idx[:(p+1)]# idx[:(p + ceil((v-sigma)/x[idx[p]]))             
-#     else:                                                                    #we haven't reached the desired norm so we have to look further.
-#         return quick_mark(x,theta, idx, p + 1,u,v-sigma-x[idx[p]]**2)
         
 def quick_mark(x, theta=0.8):
     """Given an array of x, return a minimal array of indices such that the indexed

@@ -12,6 +12,7 @@ from .tensor import apply_tprod, _multi_kron
 from . import solvers, bspline_cy
 
 def _parse_bdspec(bdspec, dim):
+    if bdspec is None: return None
     assert isinstance(dim, (int, np.integer)), 'Dimension is not an integer.'
 
     if isinstance(bdspec, str):

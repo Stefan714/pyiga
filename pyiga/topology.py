@@ -356,7 +356,7 @@ class PatchMesh:
         # simple case: if a single interval covers the boundary, we split it
         if len(segments) == 2:
             return 0
-        bd_geo = geo.boundary((bdidx // 2, bdidx % 2))
+        bd_geo = geo.boundary(bspline._parse_bdspec(bdidx, 2))
         #print(bd_geo.support)
         bd_vtx_xi = [bd_geo.find_inverse(self.vertices[j])[0] for j in segments]
         # find segment where xi_split would need to be inserted to maintain order
@@ -602,7 +602,7 @@ class PatchMesh:
             if bcolor is not None:
                 bcol=bcolor[key]
             for (p,b) in self.outer_boundaries[key]:
-                vis.plot_geo(self.geos[p].boundary(bspline._parse_bdspec(bdspec, 2)), linewidth=bwidth, color=bcol, zorder=10000, axis=ax)
+                vis.plot_geo(self.geos[p].boundary(b), linewidth=bwidth, color=bcol, zorder=10000, axis=ax)
 
         if patch_idx:
             for p in range(len(self.patches)):        # annotate patch indices

@@ -30,7 +30,7 @@ def make_tensor_quadrature(meshes, nqp):
 
 def make_boundary_quadrature(meshes, nqp, bdspec):
     """Compute an iterated Gauss quadrature rule restricted to the given boundary."""
-    bdax, bdside = bdspec
+    bdax, bdside = bdspec[0], bdspec[1]
     bdcoord = meshes[bdax][0 if bdside==0 else -1]
     gauss = [make_iterated_quadrature(mesh, nqp) for mesh in meshes]
     gauss[bdax] = (np.array([bdcoord]), np.ones((1,)))

@@ -460,14 +460,14 @@ class _BoundaryFunction(bspline._BaseGeoFunc):
         for ax in self.axis:
             gridaxes.insert(ax, np.array([self.fixed_coord[ax]]))
         vals = utils.grid_eval(self.f, gridaxes)
-        return np.squeeze(vals,self.axis)
+        return np.squeeze(vals,tuple(self.axis))
 
     def grid_jacobian(self, gridaxes, keep_normal=False):
         gridaxes = [1 - grid if flp else grid for grid, flp in zip(gridaxes, self.flip)]
         for ax in self.axis:
             gridaxes.insert(ax, np.array([self.fixed_coord[ax]]))
         jacs = self.f.grid_jacobian(gridaxes)
-        jacs = np.squeeze(jacs, self.axis)
+        jacs = np.squeeze(jacs, tuple(self.axis))
         if not keep_normal:
             # drop the partial derivatives corresponding to the normal
             # direction

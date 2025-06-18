@@ -977,7 +977,10 @@ def assemble(problem, kvs, args=None, bfuns=None, boundary=None, symmetric=False
         return _assemble_hspace(problem, kvs, bfuns=bfuns, symmetric=symmetric,
                 format=format, layout=layout, args=args)
     else:
-        asm = instantiate_assembler(problem, kvs, args, bfuns, boundary)
+        if boundary is not None:
+            asm = instantiate_assembler(problem, kvs, args, bfuns, boundary = bspline._parse_bdspec(boundary, len(kvs)))
+        else:
+            asm = instantiate_assembler(problem, kvs, args, bfuns)
         return assemble_entries(asm, symmetric=symmetric, format=format, layout=layout)
 
 def _Jac_to_boundary_matrix(bdspec, dim):
@@ -1000,9 +1003,13 @@ def _Jac_to_boundary_matrix(bdspec, dim):
 def instantiate_assembler(problem, kvs, args, bfuns, boundary=None, updatable=[]):
     from . import vform
 
+    
     # parse string to VForm
     if isinstance(problem, str):
-        problem = vform.parse_vf(problem, kvs, args=args, bfuns=bfuns, boundary=bool(boundary), updatable=updatable)
+        if boundary is not None:
+            problem = vform.parse_vf(problem, kvs, args=args, bfuns=bfuns, boundary=True, updatable=updatable)
+        else:
+            problem = vform.parse_vf(problem, kvs, args=args, bfuns=bfuns, updatable=updatable)
 
     num_spaces = 1          # by default, only one space
 
@@ -1018,11 +1025,11 @@ def instantiate_assembler(problem, kvs, args, bfuns, boundary=None, updatable=[]
         # (it is valid to specify additional, non-used args)
         used_args = dict()
 
-        if boundary:
+        if boundary is not None:
             # parse the bdspec and pass both `boundary` and the `Jac_to_boundary` matrix
             # to the assembler
             bdspec = bspline._parse_bdspec(boundary, len(kvs))
-            used_args['boundary'] = bdspec
+            used_args['boundary'] = bdspec[0]
             args['Jac_to_boundary'] = _Jac_to_boundary_matrix(bdspec, len(kvs))
 
         for inp in itertools.chain(problem.inputs().keys(), problem.parameters().keys()):
@@ -1546,12 +1553,12 @@ class Multipatch:
             bdofs=[]
             for (p,b) in self.mesh.outer_boundaries[boundary_idx]:
                 kvs, geo = self.mesh.patches[p][0]
-                bdofs.append(boundary_dofs(kvs, [(b//2,b%2)], ravel=True) + self.N_ofs[p])
+                bdofs.append(boundary_dofs(kvs, b, ravel=True) + self.N_ofs[p])
                 args.update(geo = geo)
                 
                 R.append(assemble(problem, kvs, args=args, bfuns=bfuns,
                         symmetric=symmetric, format='coo', layout=layout,
-                        **kwargs, boundary=[(b//2,b%2)]))
+                        **kwargs, boundary=b))
             X=self.Basis[np.concatenate(bdofs),:]
 
             
@@ -1560,8 +1567,8 @@ class Multipatch:
             N=np.zeros(self.numloc_dofs)
             for (p,b) in self.mesh.outer_boundaries[boundary_idx]:
                 kvs, geo = self.mesh.patches[p][0]
-                bdspec=[(b//2,b%2)]
-                bdofs = boundary_dofs(kvs, [(b//2,b%2)], ravel=True) + self.N_ofs[p]
+                bdspec=b
+                bdofs = boundary_dofs(kvs, b, ravel=True) + self.N_ofs[p]
                 args.update(geo = geo)
     
                 vals=assemble(problem, kvs, args=args, bfuns=bfuns,
@@ -1767,7 +1774,7 @@ class Multipatch:
         geos = self.mesh.geos
         for key in dir_data:
             for p,b in self.mesh.outer_boundaries[key]:
-                idx_, vals_ = compute_dirichlet_bc(kvs[p], geos[p], [(b//2,b%2)], dir_data[key])
+                idx_, vals_ = compute_dirichlet_bc(kvs[p], geos[p], b, dir_data[key])
                 if p in self.dir_idx:
                     self.dir_idx[p].append(idx_)
                     self.dir_vals[p].append(vals_)
