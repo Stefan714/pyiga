@@ -26,6 +26,36 @@ import matplotlib.pyplot as plt
 #                 S.append((comb, i))
 #     return S
 
+def face_indices(n, m):
+    """
+    Generate all m-dimensional boundary faces of an n-dimensional hypercube.
+
+    Returns:
+        A NumPy array of shape (num_faces, n - m, 2), where each face is represented
+        by a (n - m, 2) array of [axis, side] constraints.
+    """
+    if not (0 <= m <= n):
+        raise ValueError("m must satisfy 0 ≤ m ≤ n")
+
+    k = n - m  # number of fixed axes per face
+
+    # Axis combinations (C(n, k), k)
+    axis_combs = np.array(list(it.combinations(range(n), k)), dtype=int)
+    num_axis_combs = len(axis_combs)
+
+    # Side combinations (2^k, k)
+    side_combs = np.array(list(it.product((0, 1), repeat=k)), dtype=int)
+    num_side_combs = len(side_combs)
+
+    # Broadcast into (num_faces, k)
+    axes = np.repeat(axis_combs, num_side_combs, axis=0)
+    sides = np.tile(side_combs, (num_axis_combs, 1))
+
+    # Stack and reshape to (num_faces, k, 2)
+    faces = np.stack([axes, sides], axis=-1)
+
+    return faces
+
 def bdspec_to_int(bdspec):
     if isinstance(bdspec, int):
         return bdspec
@@ -270,7 +300,7 @@ class PatchMesh:
         S_new = [(new_p, b, s) for s in new_s]
         old_intf = [self.interfaces.pop((p, b, s), None) for s in old_s]
         for Sn, intf in zip(S_new, old_intf):
-            if intf:
+            if intf is not None:
                 self.interfaces[Sn] = intf
                 self.interfaces[intf[0]] = (Sn, intf[1])
 
@@ -292,7 +322,7 @@ class PatchMesh:
         self._reindex_interfaces(p, b, range(s + 1, len(bd) - 2), +1)
 
         # also split the matching boundary segment on neighboring patch, if any
-        other = self.get_matching_interface(p, b, s)
+        other, flip = self.get_matching_interface(p, b, s)
         if other:
             (p1, b1, s1) = other
             bd1 = self.boundaries(p1)[0][b1]
@@ -300,7 +330,10 @@ class PatchMesh:
             #print(bd1)
             #print(new_vtx)
             bd1.insert(s1 + 1, new_vtx)
-            bd_par1.insert(s1 + 1, split_xi)
+            if flip[0]:
+                bd_par1.insert(s1 + 1, 1-split_xi)
+            else:
+                bd_par1.insert(s1 + 1, split_xi)
 
             # shift all later interfaces up by one
             self._reindex_interfaces(p1, b1, range(s1 + 1, len(bd1) - 2), +1)
@@ -447,7 +480,6 @@ class PatchMesh:
 
         for sb, new_vtx in zip(split_boundaries, new_vertices):
             i_new = self.split_patch_boundary(p, sb, split_xi, self.vertices[new_vtx], new_p)
-            #print(i_new)
             # split the boundaries of the new patches at this vertex
             new_bd = self.boundaries(p)[0][sb]
             new_bd_par = self.boundaries(p)[1][sb]
@@ -564,9 +596,9 @@ class PatchMesh:
         assert 0 <= segment < len(bdrs[boundary]) - 1
         matching = self.interfaces.get((p, boundary, segment))
         if matching:
-            return matching[0]
+            return matching[0], matching[1]
         else:
-            return None  # no matching segment - must be on the boundary
+            return None, False  # no matching segment - must be on the boundary
 
     def plotmesh(self, vertex_idx = False, patch_idx = False, nodes=False, bwidth=1, color=None, bcolor=None, **kwargs):
         """plots the multi-patch domain in 2D."""
@@ -876,7 +908,7 @@ class PatchMesh3D:
         #self._reindex_interfaces(p, b, range(s + 1, len(bd) - 2), 1)
 
         # also split the matching boundary segment on neighboring patch, if any
-        other = self.get_matching_interface(p, b, s)
+        other, flip = self.get_matching_interface(p, b, s)
         if other:
             (p1, b1, s1) = other
             bd1 = self.boundaries(p1)[b1]
@@ -1166,9 +1198,9 @@ class PatchMesh3D:
         #assert 0 <= segment < len(bdrs[boundary]) - 1
         matching = self.interfaces.get((p, boundary, segment))
         if matching:
-            return matching[0]
+            return matching[0], matching[1]
         else:
-            return None     # no matching segment - must be on the boundary
+            return None, False     # no matching segment - must be on the boundary
         
     def draw(self, knots = True, vertex_idx = False, edge_idx=False, patch_idx = False, nodes=False, figsize=(8,8)):
         """draws a visualization of the patchmesh in 2D."""
@@ -1236,10 +1268,10 @@ class PatchMesh3D:
             for b, bd in enumerate(bdrs):
                 assert len(bd) >= 2    # each boundary has at least one segment
                 for s in range(len(bd) - 1):    # check each boundary segment
-                    other = self.get_matching_interface(p, b, s)
+                    other, _ = self.get_matching_interface(p, b, s)
                     if other:
                         # if not on the boundary, make sure the other one refers back to this one
-                        matching = self.get_matching_interface(*other)
+                        matching, _ = self.get_matching_interface(*other)
                         #print((p,b,s), '->', other, '->', matching)
                         assert matching == (p, b, s)
 

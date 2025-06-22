@@ -438,7 +438,7 @@ def boundary_dofs(kvs, bdspec=None, m=None, ravel=False, swap=None, flip=None):
     else:
         manifolds = topology.face_indices(n,m)
         if ravel==True:
-            return np.unique(np.concatenate([boundary_dofs(kvs, M, ravel=True) for M in manifolds]))
+            return np.unique(np.concatenate([boundary_dofs(kvs, manifolds[i,:,:], ravel=True) for i in range(manifolds.shape[0])]))
         else:
             return [boundary_dofs(kvs, M, ravel=True) for M in manifolds]
         

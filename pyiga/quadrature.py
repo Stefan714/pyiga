@@ -16,7 +16,7 @@ def greville_rule(kv):
     """Return nodes and weights for Greville rule of a given Knot Vector kv."""
     nodes = kv.greville()
     rhs = (kv.kv[kv.p+1:]-kv.kv[:-kv.p-1])/(kv.p+1)
-    weights = solvers.make_solver(bspline.collocation(kv,nodes)).dot(rhs)
+    weights = solvers.make_solver(bspline.collocation(kv,nodes))@rhs
     return nodes, weights
 
 def make_iterated_quadrature(intervals, nqp):
