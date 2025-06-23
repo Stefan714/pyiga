@@ -1263,7 +1263,7 @@ def detect_interfaces(patches):
         A pair `(connected, interfaces)`, where `connected` is a `bool`
         describing whether the detected patch graph is connected, and
         `interfaces` is a list of the detected interfaces, each entry of
-        which is suitable for passing to :meth:`join_boundaries`.
+        which is suitable for passing to :meth:`computeInterfaceJump`.
     """
     interfaces = []
     bbs = [_bb_rect(geo) for (_, geo) in patches]
@@ -1301,7 +1301,7 @@ class Multipatch:
         
         automatch (bool): if True, attempt to automatically apply the interface information from the PatchMesh object to couple the patches.
             If False, the user has to manually join the patches by calling
-            :meth:`join_boundaries` as often as needed, followed by
+            :meth:`computeInterfaceJump` as often as needed, followed by
             :meth:`finalize`.
     """
     def __init__(self, M, automatch=False):
@@ -1325,8 +1325,6 @@ class Multipatch:
         # offset to the dofs of the i-th patch
         self.N_ofs = np.concatenate(([0], np.cumsum(self.N)))
 
-        # per patch, a dict of shared indices
-        #self.shared_pp = dict(zip([p for p in range(self.mesh.numpatches)],self.mesh.numpatches*[set(),]))
         # a list of interfaces (patch1, boundary dofs1, patch2, boundary dofs2)
         self.intfs = set()
         self.L_intfs = {}
@@ -1342,7 +1340,8 @@ class Multipatch:
                     self.intfs.add(((p1,bd1,s1),(p2,bd2,s2),flip))
         
             t=time.time()
-            C=[self.join_boundaries(p1, bspline._parse_bdspec(bd1,self.sdim), s1 , p2, bspline._parse_bdspec(bd2,self.sdim), s2, flip) for ((p1,bd1,s1),(p2,bd2,s2), flip) in self.intfs.copy()]
+            C=[self.computeInterfaceJump(p1, bspline._parse_bdspec(bd1,self.sdim), s1, 
+                                         p2, bspline._parse_bdspec(bd2,self.sdim), s2, flip) for ((p1,bd1,s1),(p2,bd2,s2), flip) in self.intfs.copy()]
             print('setting up constraints took '+str(time.time()-t)+' seconds.')
             for (p,b,_),(p2,b2,_),_ in self.intfs:
                 if (p,b) not in self.L_intfs:
@@ -1379,7 +1378,7 @@ class Multipatch:
     def reset(self):
         self.__init__(M=self.mesh, automatch=True)
 
-    def join_boundaries(self, p1, bdspec1, s1, p2, bdspec2, s2, flip=None):
+    def computeInterfaceJump(self, p1, bdspec1, s1, p2, bdspec2, s2, flip=None):
         """Join the dofs lying along boundary `bdspec1` of patch `p1` with
         those lying along boundary `bdspec2` of patch `p2`. 
 
@@ -1407,16 +1406,23 @@ class Multipatch:
         elif all([kv2<=kv1 for kv1, kv2 in zip(bkv1,bkv2)]):      
             self.intfs.remove(((p1,2*bdspec1[0][0]+bdspec1[0][1],s1),(p2,2*bdspec2[0][0]+bdspec2[0][1],s2),flip))
             self.intfs.add(((p2,2*bdspec2[0][0]+bdspec2[0][1],s2),(p1,2*bdspec1[0][0]+bdspec1[0][1],s1),flip))
+            #switch variables so patch 1 is always coarse
             p1, p2 = p2, p1
             bdspec1, bdspec2 = bdspec2, bdspec1
             bkv1, bkv2 = bkv2, bkv1
             dofs1, dofs2 = dofs2, dofs1
         else:
-            print(p1, bkv1, p2, bkv2)
-            print('interface coupling not possible')
-            
-        #self.shared_pp[p1]=self.shared_pp[p1] | set(dofs1)
-        #self.shared_pp[p2]=self.shared_pp[p2] | set(dofs2)
+            match 2*b1[0]+b1[1]:
+                case 0: side1='bottom'
+                case 1: side1='top'
+                case 2: side1='left'
+                case 3: side1='right'
+            match 2*b2[0]+b2[1]:
+                case 0: side2='bottom'
+                case 1: side2='top'
+                case 2: side2='left'
+                case 3: side2='right'
+            raise AssertionError(f"Interface coupling not possible between patch {p1} on the {side1} side and patch {p2} on the {side2} side")
             
         #Prolongation operator  
         P = -scipy.sparse.coo_matrix(bspline.prolongation_tp(bkv1,bkv2))   #TODO: make paramater to generate prolongation matrix as coo_matrix directly?
@@ -1424,23 +1430,13 @@ class Multipatch:
         data = np.concatenate([P.data, np.ones(len(dofs2))])
         I = np.concatenate([P.row, np.arange(len(dofs2))])
         J = np.concatenate([dofs1[P.col] + self.N_ofs[p1],dofs2 + self.N_ofs[p2]])
-        A = scipy.sparse.coo_matrix((data,(I,J)),(len(dofs2), self.numloc_dofs)).tocsr()
-        
-        # idx_old = A.indices[A.indptr[np.where(A.getnnz(axis=1)==2)[0]]]
-        # idx_new = A.indices[A.indptr[np.where(A.getnnz(axis=1)==2)[0]]+1]
-        # i = np.arange(A.shape[1])
-        # i[idx_old]=idx_new
-        # i[idx_new]=idx_old
-
-        #M = scipy.sparse.coo_matrix((np.ones(A.shape[1]),(i,np.arange(A.shape[1]))),2*(A.shape[1],))
-        
-        #self.B = scipy.sparse.vstack([self.B,scipy.sparse.coo_matrix((data,(I,J)),(len(dofs2), self.numloc_dofs)).tocsr()])
-        return A
+        return scipy.sparse.csr_matrix((data,(I,J)),(len(dofs2), self.numloc_dofs))
         
     def finalize(self):
-        """After all shared dofs have been declared using
-        :meth:`join_boundaries` or :meth:`join_dofs`, call this function to set
-        up the internal data structures.
+        """After all interface constraints have been declared using
+        :meth:`computeInterfaceJump`, call this function to 
+        compute a basis to parametrize the nullspace of the constraints
+        and set up the internal data structures.
         """
         t=time.time()
         I = self.interface_dofs = np.unique(self.B.indices)
