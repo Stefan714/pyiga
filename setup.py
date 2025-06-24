@@ -55,6 +55,7 @@ extensions = [
              ["pyiga/bspline_cy.pyx"],
         include_dirs = [numpy.get_include()],
         extra_compile_args=c_args,
+        language="c++",
         define_macros=c_macros,
     ),
     Extension("pyiga.lowrank_cy",
