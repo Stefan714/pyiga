@@ -9,14 +9,24 @@ cimport cython
 import numpy as np
 cimport numpy as np
 
-from libc.math cimport fabs
+from libc.math cimport fabs, fmin, fmax
 from libcpp.string cimport string
 from libc.stdio cimport snprintf
+
+###Helper functions
+cdef int count_multiplicity(double[:] kv, int idx, int n, double tol):
+    cdef int m = 1
+    while (idx + m) < n and fabs(kv[idx + m] - kv[idx]) < tol:
+        m += 1
+    return m
 
 cdef class KnotVector:
     cdef int _p
     cdef double[:] _knots  # typed memoryview
     cdef int size
+    cdef double[:] _mesh
+    cdef int[:] _m
+    cdef int  meshsize
 
     def __cinit__(self, int p, np.ndarray[np.float64_t, ndim=1] knots):
         self._p = p
@@ -27,6 +37,28 @@ cdef class KnotVector:
 
         if not self.sanity_check(): raise AssertionError("not a p-open knot vector")
 
+        cdef int i = 0, count = 0
+        cdef double[:] _knots = knots
+        while i < self.size:
+            count += 1
+            i += count_multiplicity(_knots, i, self.size, 1e-12)
+
+        self.meshsize = count
+        cdef np.ndarray[np.float64_t, ndim=1] mesh = np.empty(count, dtype=np.float64)
+        cdef np.ndarray[np.int32_t, ndim=1] m = np.empty(count, dtype=np.int32)
+        self._mesh = mesh
+        self._m = m
+        cdef double[:] _mesh = self._mesh
+        cdef int[:] _m = self._m
+
+        cdef int k = 0
+        i = 0
+        while i < self.size:
+            _mesh[k] = _knots[i]
+            _m[k] = count_multiplicity(_knots, i, self.size, 1e-12)
+            i += _m[k]
+            k += 1
+            
     def __richcmp__(self, other, int op):
         if not isinstance(other, KnotVector):
             return NotImplemented
@@ -49,28 +81,32 @@ cdef class KnotVector:
     @cython.boundscheck(False)
     @cython.wraparound(False)
     cdef bint eq(self, KnotVector other):
-        cdef double[:] knots1 = self._knots
-        cdef double[:] knots2 = other._knots
-        cdef int i, n = self.size
+        cdef double[:] mesh1 = self._mesh
+        cdef double[:] mesh2 = other._mesh
+        cdef int[:] m1 = self._m
+        cdef int[:] m2 = other._m
+        cdef int i, n = self.meshsize
         cdef double tol = 1e-12
     
-        if self._p != other._p or n != other.size:
+        if self._p != other._p or n!=other.meshsize:
             return False
         for i in range(n):
-            if fabs(knots1[i] - knots2[i]) > tol:
+            if fabs(mesh1[i] - mesh2[i]) > tol or m1[i] != m2[i]:
                 return False
         return True
 
     @cython.boundscheck(False)
     @cython.wraparound(False)
-    cdef bint leq(self, KnotVector other):
+    cdef bint leq(self, KnotVector other): ###TODO: since mesh is now anyway precomputed, use mesh and not knots
         cdef double[:] knots1 = self._knots
         cdef double[:] knots2 = other._knots
+        cdef int[:] m1 = self._m
+        cdef int[:] m2 = other._m
 
         cdef double a1 = knots1[0], b1 = knots1[self.size-1], a2 = knots2[0], b2 = knots2[other.size-1] 
         
         cdef int i1=0, i2=0
-        cdef int m1, m2, delta_p=other._p - self._p
+        cdef int delta_p=other._p - self._p
         cdef int n1=self.size, n2=other.size
         cdef double tol=1e-12
         if delta_p<0: return False
@@ -90,19 +126,11 @@ cdef class KnotVector:
             if i1 == n1:
                 break
     
-            m1 = 1
-            while (i1 + m1) < n1 and fabs(knots1[i1 + m1] - knots1[i1]) < tol:
-                m1 += 1
-    
-            m2 = 1
-            while (i2 + m2) < n2 and fabs(knots2[i2 + m2] - knots2[i2]) < tol:
-                m2 += 1
-    
-            if m2 < m1 + delta_p:
+            if m2[i2] < m1[i1] + delta_p:
                 return False
     
-            i1 += m1
-            i2 += m2
+            i1 += m1[i1]
+            i2 += m2[i2]
         return True
         
     @cython.boundscheck(False)
@@ -138,16 +166,20 @@ cdef class KnotVector:
         return self._p
 
     @property
-    def knots(self):
+    def kv(self):
         return self._knots.base
 
     @property
-    def support(self):
-        return (self._knots[0], self._knots[self.size-1])
-
-    @property
     def mesh(self):
-        return np.unique(self._knots.base)
+        return self._mesh.base
+
+    cpdef (double, double) support(self, int j=-1):
+        if j<0: 
+            return (self._knots[0], self._knots[self.size-1])
+        elif j >= self.size - self._p -1:
+            raise IndexError(f"Basis function index j={j} out of range (max={self.size - self._p - 2})")
+        else:
+            return (self._knots[j], self._knots[j+self._p+1])
 
     @cython.cdivision(True)
     @cython.boundscheck(False)
@@ -158,6 +190,10 @@ cdef class KnotVector:
         cdef np.ndarray[double, ndim=1] grev_pts = np.empty(n, dtype=np.float64)
         cdef int i, j
         cdef double s
+        cdef double minv = knots[0], maxv = knots[self.size-1]
+
+        cdef inline double clamp(double x, double a, double b):
+            return fmax(fmin(x, b), a)
 
         if self._p == 0:
             for i in range(n):
@@ -168,7 +204,7 @@ cdef class KnotVector:
             s = 0.0
             for j in range(1, self._p + 1):  # sum from kv[i+1] to kv[i+p]
                 s += knots[i + j]
-            grev_pts[i] = s / self._p
+            grev_pts[i] = clamp(s / self._p, minv, maxv)
         return grev_pts
 
     @cython.boundscheck(False)
@@ -199,12 +235,22 @@ cdef class KnotVector:
         for i in range(n - 1):
             if knots[i] > knots[i + 1]:
                 return False
-    
+
         return True
 
 cpdef KnotVector make_knots(int p, double a, double b, int n, int mult=1):
-    print(1)
-
+    cdef int i,j, size = 2*(p+1)+mult*(n-1)
+    cdef np.ndarray[np.float64_t, ndim=1] knots = np.empty(size, dtype=np.float64)
+    cdef double[:]_knots = knots
+    cdef double step = (b-a)/n
+    
+    for i in range(p+1):
+        _knots[i]=a
+        _knots[size-i-1]=b
+    for i in range(n-1):
+        for j in range(mult):
+            _knots[i+j+p+1]=a+(i+1)*step
+    return KnotVector(p, knots)
 ##################################################################################################
 @cython.cdivision(True)
 @cython.boundscheck(False)
