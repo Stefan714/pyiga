@@ -14,11 +14,19 @@ from libcpp.string cimport string
 from libc.stdio cimport snprintf
 
 ###Helper functions
-cdef int count_multiplicity(double[:] kv, int idx, int n, double tol):
+cdef inline int count_multiplicity(double[:] kv, int idx, int n, double tol):
     cdef int m = 1
     while (idx + m) < n and fabs(kv[idx + m] - kv[idx]) < tol:
         m += 1
     return m
+
+cdef inline double clamp(double x, double a, double b):
+    if x < a:
+        return a
+    elif x > b:
+        return b
+    else:
+        return x
 
 cdef class KnotVector:
     cdef int _p
@@ -192,9 +200,6 @@ cdef class KnotVector:
         cdef double s
         cdef double minv = knots[0], maxv = knots[self.size-1]
 
-        cdef inline double clamp(double x, double a, double b):
-            return fmax(fmin(x, b), a)
-
         if self._p == 0:
             for i in range(n):
                 grev_pts[i] = (knots[i] + knots[i+1])/2
@@ -249,7 +254,7 @@ cpdef KnotVector make_knots(int p, double a, double b, int n, int mult=1):
         _knots[size-i-1]=b
     for i in range(n-1):
         for j in range(mult):
-            _knots[i+j+p+1]=a+(i+1)*step
+            _knots[p + 1 + i * mult + j] = a + (i + 1) * step
     return KnotVector(p, knots)
 ##################################################################################################
 @cython.cdivision(True)
