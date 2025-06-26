@@ -3,259 +3,339 @@
 # cython: binding=False
 # distutils: define_macros=NPY_NO_DEPRECATED_API=NPY_1_7_API_VERSION
 # distutils: language = c++
+# cython: language_level=3, boundscheck=False, cdivision=True, wraparound=False, initializedcheck=False, nonecheck=False
 
 cimport cython
 
 import numpy as np
 cimport numpy as np
 
+from libc.stdlib cimport malloc, free
 from libc.math cimport fabs, fmin, fmax
 from libcpp.string cimport string
 from libc.stdio cimport snprintf
 
 ###Helper functions
-cdef inline int count_multiplicity(double[:] kv, int idx, int n, double tol):
-    cdef int m = 1
-    while (idx + m) < n and fabs(kv[idx + m] - kv[idx]) < tol:
-        m += 1
-    return m
+# cdef inline int count_multiplicity(double[:] kv, int idx, int n, double tol):
+#     cdef int m = 1
+#     while (idx + m) < n and fabs(kv[idx + m] - kv[idx]) < tol:
+#         m += 1
+#     return m
 
-cdef inline double clamp(double x, double a, double b):
-    if x < a:
-        return a
-    elif x > b:
-        return b
-    else:
-        return x
+# cdef inline double clamp(double x, double a, double b):
+#     if x < a:
+#         return a
+#     elif x > b:
+#         return b
+#     else:
+#         return x
 
-cdef class KnotVector:
-    cdef int _p
-    cdef double[:] _knots  # typed memoryview
-    cdef int size
-    cdef double[:] _mesh
-    cdef int[:] _m
-    cdef int  meshsize
+# cdef class KnotVector:
+#     cdef int _p
+#     cdef double[:] _knots  # typed memoryview
+#     cdef int size
+#     cdef double[:] _mesh
+#     cdef int[:] _m
+#     cdef int _meshsize
+#     cdef int _numdofs
 
-    def __cinit__(self, int p, np.ndarray[np.float64_t, ndim=1] knots):
-        self._p = p
-        if not knots.flags['C_CONTIGUOUS']:
-            raise ValueError("knots array must be contiguous")
-        self._knots = knots
-        self.size = len(knots)
+#     def __cinit__(self, int p, np.ndarray[np.float64_t, ndim=1] knots):
+#         self._p = p
+#         if not knots.flags['C_CONTIGUOUS']:
+#             raise ValueError("knots array must be contiguous")
+#         self._knots = knots
+#         self.size = len(knots)
+#         self._numdofs = self.size - self._p-1
 
-        if not self.sanity_check(): raise AssertionError("not a p-open knot vector")
+#         if not self.sanity_check(): raise AssertionError("not a p-open knot vector")
 
-        cdef int i = 0, count = 0
-        cdef double[:] _knots = knots
-        while i < self.size:
-            count += 1
-            i += count_multiplicity(_knots, i, self.size, 1e-12)
+#         cdef int i = 0, count = 0
+#         cdef double[:] _knots = knots
+#         while i < self.size:
+#             count += 1
+#             i += count_multiplicity(_knots, i, self.size, 1e-12)
 
-        self.meshsize = count
-        cdef np.ndarray[np.float64_t, ndim=1] mesh = np.empty(count, dtype=np.float64)
-        cdef np.ndarray[np.int32_t, ndim=1] m = np.empty(count, dtype=np.int32)
-        self._mesh = mesh
-        self._m = m
-        cdef double[:] _mesh = self._mesh
-        cdef int[:] _m = self._m
+#         self._meshsize = count
+#         cdef np.ndarray[np.float64_t, ndim=1] mesh = np.empty(count, dtype=np.float64)
+#         cdef np.ndarray[np.int32_t, ndim=1] m = np.empty(count, dtype=np.int32)
+#         self._mesh = mesh
+#         self._m = m
+#         cdef double[:] _mesh = self._mesh
+#         cdef int[:] _m = self._m
 
-        cdef int k = 0
-        i = 0
-        while i < self.size:
-            _mesh[k] = _knots[i]
-            _m[k] = count_multiplicity(_knots, i, self.size, 1e-12)
-            i += _m[k]
-            k += 1
+#         cdef int k = 0
+#         i = 0
+#         while i < self.size:
+#             _mesh[k] = _knots[i]
+#             _m[k] = count_multiplicity(_knots, i, self.size, 1e-12)
+#             i += _m[k]
+#             k += 1
             
-    def __richcmp__(self, other, int op):
-        if not isinstance(other, KnotVector):
-            return NotImplemented
+#     def __richcmp__(self, other, int op):
+#         if not isinstance(other, KnotVector):
+#             return NotImplemented
     
-        if op == 0:  # <
-            return self.leq(other) and not self.eq(other)
-        elif op == 1:  # <=
-            return self.leq(other)
-        elif op == 2:  # ==
-            return self.eq(other)
-        elif op == 3:  # !=
-            return not self.eq(other)
-        elif op == 4:  # >
-            return not self.leq(other)
-        elif op == 5:  # >=
-            return self.eq(other) or not self.leq(other)
-        else:
-            return NotImplemented
+#         if op == 0:  # <
+#             return self.leq(other) and not self.eq(other)
+#         elif op == 1:  # <=
+#             return self.leq(other)
+#         elif op == 2:  # ==
+#             return self.eq(other)
+#         elif op == 3:  # !=
+#             return not self.eq(other)
+#         elif op == 4:  # >
+#             return not self.leq(other)
+#         elif op == 5:  # >=
+#             return self.eq(other) or not self.leq(other)
+#         else:
+#             return NotImplemented
 
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cdef bint eq(self, KnotVector other):
-        cdef double[:] mesh1 = self._mesh
-        cdef double[:] mesh2 = other._mesh
-        cdef int[:] m1 = self._m
-        cdef int[:] m2 = other._m
-        cdef int i, n = self.meshsize
-        cdef double tol = 1e-12
+#     cdef bint eq(self, KnotVector other):
+#         cdef double[:] mesh1 = self._mesh
+#         cdef double[:] mesh2 = other._mesh
+#         cdef int[:] m1 = self._m
+#         cdef int[:] m2 = other._m
+#         cdef int i, n = self._meshsize
+#         cdef double tol = 1e-12
     
-        if self._p != other._p or n!=other.meshsize:
-            return False
-        for i in range(n):
-            if fabs(mesh1[i] - mesh2[i]) > tol or m1[i] != m2[i]:
-                return False
-        return True
+#         if self._p != other._p or n!=other._meshsize:
+#             return False
+#         for i in range(n):
+#             if fabs(mesh1[i] - mesh2[i]) > tol or m1[i] != m2[i]:
+#                 return False
+#         return True
 
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cdef bint leq(self, KnotVector other): ###TODO: since mesh is now anyway precomputed, use mesh and not knots
-        cdef double[:] knots1 = self._knots
-        cdef double[:] knots2 = other._knots
-        cdef int[:] m1 = self._m
-        cdef int[:] m2 = other._m
+#     cdef bint leq(self, KnotVector other): ###TODO: since mesh is now anyway precomputed, use mesh and not knots
+#         cdef double[:] knots1 = self._knots
+#         cdef double[:] knots2 = other._knots
+#         cdef int[:] m1 = self._m
+#         cdef int[:] m2 = other._m
 
-        cdef double a1 = knots1[0], b1 = knots1[self.size-1], a2 = knots2[0], b2 = knots2[other.size-1] 
+#         cdef double a1 = knots1[0], b1 = knots1[self.size-1], a2 = knots2[0], b2 = knots2[other.size-1] 
         
-        cdef int i1=0, i2=0
-        cdef int delta_p=other._p - self._p
-        cdef int n1=self.size, n2=other.size
-        cdef double tol=1e-12
-        if delta_p<0: return False
-        if a1 > a2 + tol or b2 > b1 + tol: return False
+#         cdef int i1=0, i2=0
+#         cdef int delta_p=other._p - self._p
+#         cdef int n1=self.size, n2=other.size
+#         cdef double tol=1e-12
+#         if delta_p<0: return False
+#         if a1 > a2 + tol or b2 > b1 + tol: return False
     
-        while knots1[i1] < a2 - tol: 
-            i1 += 1
+#         while knots1[i1] < a2 - tol: 
+#             i1 += 1
     
-        while i1 < n1 and i2 < n2:  
-            while i2 < n2 and knots2[i2] < knots1[i1] - tol:
-                i2 += 1
-            if i2 == n2:
-                break
+#         while i1 < n1 and i2 < n2:  
+#             while i2 < n2 and knots2[i2] < knots1[i1] - tol:
+#                 i2 += 1
+#             if i2 == n2:
+#                 break
     
-            while i1 < n1 and knots1[i1] < knots2[i2] - tol:
-                i1 += 1
-            if i1 == n1:
-                break
+#             while i1 < n1 and knots1[i1] < knots2[i2] - tol:
+#                 i1 += 1
+#             if i1 == n1:
+#                 break
     
-            if m2[i2] < m1[i1] + delta_p:
-                return False
+#             if m2[i2] < m1[i1] + delta_p:
+#                 return False
     
-            i1 += m1[i1]
-            i2 += m2[i2]
-        return True
-        
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    def __str__(self):
-        cdef double[:] knots = self._knots
-        cdef:
-            int n = self.size
-            int i, pos = 0
-            char buffer[2048]  # adjust if needed
-            int written
-    
-        written = snprintf(buffer, sizeof(buffer), b"Knot vector (degree %d): [", self._p)
-        pos += written
-    
-        for i in range(n):
-            written = snprintf(buffer + pos, sizeof(buffer) - pos, b"%.3f", knots[i])
-            pos += written
-    
-            if i < n - 1:
-                buffer[pos] = ord(',')
-                buffer[pos+1] = ord(' ')
-                pos += 2
-    
-        buffer[pos] = ord(']')
-        pos += 1
-        buffer[pos] = 0
-    
-        return buffer[:pos].decode('ascii')
+#             i1 += m1[i1]
+#             i2 += m2[i2]
+#         return True
 
-    @property
-    def p(self):
-        return self._p
-
-    @property
-    def kv(self):
-        return self._knots.base
-
-    @property
-    def mesh(self):
-        return self._mesh.base
-
-    cpdef (double, double) support(self, int j=-1):
-        if j<0: 
-            return (self._knots[0], self._knots[self.size-1])
-        elif j >= self.size - self._p -1:
-            raise IndexError(f"Basis function index j={j} out of range (max={self.size - self._p - 2})")
-        else:
-            return (self._knots[j], self._knots[j+self._p+1])
-
-    @cython.cdivision(True)
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cpdef np.ndarray[double, ndim=1] greville(self):
-        cdef double[:] knots = self._knots
-        cdef int n = self.size - self._p - 1
-        cdef np.ndarray[double, ndim=1] grev_pts = np.empty(n, dtype=np.float64)
-        cdef int i, j
-        cdef double s
-        cdef double minv = knots[0], maxv = knots[self.size-1]
-
-        if self._p == 0:
-            for i in range(n):
-                grev_pts[i] = (knots[i] + knots[i+1])/2
-            return grev_pts
-
-        for i in range(n):
-            s = 0.0
-            for j in range(1, self._p + 1):  # sum from kv[i+1] to kv[i+p]
-                s += knots[i + j]
-            grev_pts[i] = clamp(s / self._p, minv, maxv)
-        return grev_pts
-
-    @cython.boundscheck(False)
-    @cython.wraparound(False)
-    cdef bint sanity_check(self):
-        cdef double[:] knots = self._knots
-        cdef int i, n = self.size
-        cdef double first_val, last_val
+#     def __str__(self):
+#         cdef double[:] knots = self._knots
+#         cdef int n = self.size
+#         cdef int bufsize = 100 + 14 * min(n, 50)  # estimate smaller buffer since truncation
+#         cdef char* buffer = <char*>malloc(bufsize)
+#         cdef int i, pos = 0, written
     
-        # Quick check on knot vector length
-        if n < 2 * self._p + 2:
-            return False
+#         if not buffer:
+#             raise MemoryError("Could not allocate buffer")
     
-        first_val = knots[0]
-        last_val = knots[n - 1]
+#         written = snprintf(buffer, bufsize, b"Knot vector (degree %d): [", self._p)
+#         pos += written
     
-        # Check first p+1 knots equal
-        for i in range(1, self._p + 1):
-            if knots[i] != first_val:
-                return False
+#         if n <= 50:
+#             # print all knots
+#             for i in range(n):
+#                 written = snprintf(buffer + pos, bufsize - pos, b"%.3g", knots[i])
+#                 pos += written
+#                 if i < n - 1:
+#                     buffer[pos] = ord(',')
+#                     buffer[pos + 1] = ord(' ')
+#                     pos += 2
+#         else:
+#             # print first 3 knots
+#             for i in range(3):
+#                 written = snprintf(buffer + pos, bufsize - pos, b"%.3g", knots[i])
+#                 pos += written
+#                 buffer[pos] = ord(',')
+#                 buffer[pos + 1] = ord(' ')
+#                 pos += 2
     
-        # Check last p+1 knots equal
-        for i in range(n - self._p - 1, n):
-            if knots[i] != last_val:
-                return False
+#             # print ellipsis "..."
+#             written = snprintf(buffer + pos, bufsize - pos, b"...")
+#             pos += written
+#             buffer[pos] = ord(',')
+#             buffer[pos + 1] = ord(' ')
+#             pos += 2
     
-        # Check nondecreasing sequence
-        for i in range(n - 1):
-            if knots[i] > knots[i + 1]:
-                return False
+#             # print last 3 knots
+#             for i in range(n - 3, n):
+#                 written = snprintf(buffer + pos, bufsize - pos, b"%.3g", knots[i])
+#                 pos += written
+#                 if i < n - 1:
+#                     buffer[pos] = ord(',')
+#                     buffer[pos + 1] = ord(' ')
+#                     pos += 2
+    
+#         buffer[pos] = ord(']')
+#         pos += 1
+#         buffer[pos] = 0
+    
+#         cdef bytes s_bytes = (<char *>buffer)[:pos]
+#         free(buffer)
+#         return s_bytes.decode('ascii')
 
-        return True
+#     @property
+#     def p(self):
+#         return self._p
 
-cpdef KnotVector make_knots(int p, double a, double b, int n, int mult=1):
-    cdef int i,j, size = 2*(p+1)+mult*(n-1)
-    cdef np.ndarray[np.float64_t, ndim=1] knots = np.empty(size, dtype=np.float64)
-    cdef double[:]_knots = knots
-    cdef double step = (b-a)/n
+#     @property
+#     def kv(self):
+#         return self._knots.base
+
+#     @property
+#     def numknots(self):
+#         return self.size
+
+#     @property
+#     def numdofs(self):
+#         """Number of basis functions in a B-spline basis defined over this knot vector"""
+#         return self._numdofs
+
+#     @property
+#     def numspans(self):
+#         """Number of nontrivial intervals in the knot vector"""
+#         return self._meshsize - 1
+
+#     @property
+#     def mesh(self):
+#         return self._mesh.base
+
+#     cpdef (double, double) support(self, int j=-1):
+#         if j<0: 
+#             return (self._knots[0], self._knots[self.size-1])
+#         elif j >= self.size - self._p -1:
+#             raise IndexError(f"Basis function index j={j} out of range (max={self.size - self._p - 2})")
+#         else:
+#             return (self._knots[j], self._knots[j+self._p+1])
+
+#     cpdef (int, int) support_idx(self, int j):
+#         """Knot indices of support of j-th B-spline"""
+#         return (j, j+self._p+1)
+
+#     # cpdef (int, int) mesh_support_idx(self, j):
+#     #     """Return the first and last mesh index of the support of i"""
+#     #     return (self._knots_to_mesh[j], self._knots_to_mesh[j+self._p+1])
+
+#     # cpdef (int, int) mesh_support_idx_all(self):
+#     #     """Compute an integer array of size `N × 2`, where N = self.numdofs, which
+#     #     contains for each B-spline the result of :func:`mesh_support_idx`.
+#     #     """
+#     #     n = self.numdofs
+#     #     startend = np.stack((np.arange(0,n), np.arange(self.p+1, n+self.p+1)), axis=1)
+#     #     return self._knots_to_mesh[startend]
+
+#     # cpdef mesh_span_indices(self):
+#     #     """Return an array of indices i such that kv[i] != kv[i+1], i.e., the indices
+#     #     of the nonempty spans. Return value has length self.numspans.
+#     #     """
+#     #     self._ensure_mesh()
+#     #     k2m = self._knots_to_mesh
+#     #     return np.where(k2m[1:] != k2m[:-1])[0]
+
+#     cpdef int findspan(self, double u):
+#         """Returns an index i such that
+#          kv[i] <= u < kv[i+1]     (except for the boundary, where u <= kv[m-p] is allowed)
+#          and p <= i < len(kv) - 1 - p"""
+
+#         cdef int n = self.size
     
-    for i in range(p+1):
-        _knots[i]=a
-        _knots[size-i-1]=b
-    for i in range(n-1):
-        for j in range(mult):
-            _knots[p + 1 + i * mult + j] = a + (i + 1) * step
-    return KnotVector(p, knots)
+#         if u >= self._knots[n - self._p - 1]:
+#             return n - self._p - 2  # last interval
+    
+#         cdef int a = 0, b = n - 1, c
+    
+#         while b - a > 1:
+#             c = a + (b - a) / 2
+#             if self._knots[c] > u:
+#                 b = c
+#             else:
+#                 a = c
+#         return a
+
+#     cpdef np.ndarray[double, ndim=1] greville(self):
+#         cdef double[:] knots = self._knots
+#         cdef int n = self.size - self._p - 1
+#         cdef np.ndarray[double, ndim=1] grev_pts = np.empty(n, dtype=np.float64)
+#         cdef int i, j
+#         cdef double s
+#         cdef double minv = knots[0], maxv = knots[self.size-1]
+
+#         if self._p == 0:
+#             for i in range(n):
+#                 grev_pts[i] = (knots[i] + knots[i+1])/2
+#             return grev_pts
+
+#         for i in range(n):
+#             s = 0.0
+#             for j in range(1, self._p + 1):  # sum from kv[i+1] to kv[i+p]
+#                 s += knots[i + j]
+#             grev_pts[i] = clamp(s / self._p, minv, maxv)
+#         return grev_pts
+
+#     cdef bint sanity_check(self):
+#         cdef double[:] knots = self._knots
+#         cdef int i, n = self.size
+#         cdef double first_val, last_val
+    
+#         # Quick check on knot vector length
+#         if n < 2 * self._p + 2:
+#             return False
+    
+#         first_val = knots[0]
+#         last_val = knots[n - 1]
+    
+#         # Check first p+1 knots equal
+#         for i in range(1, self._p + 1):
+#             if knots[i] != first_val:
+#                 return False
+    
+#         # Check last p+1 knots equal
+#         for i in range(n - self._p - 1, n):
+#             if knots[i] != last_val:
+#                 return False
+    
+#         # Check nondecreasing sequence
+#         for i in range(n - 1):
+#             if knots[i] > knots[i + 1]:
+#                 return False
+
+#         return True
+
+# cdef KnotVector make_knots(int p, double a, double b, int n, int mult):
+#     cdef int i,j, size = 2*(p+1)+mult*(n-1)
+#     cdef np.ndarray[np.float64_t, ndim=1] knots = np.empty(size, dtype=np.float64)
+#     cdef double[:]_knots = knots
+#     cdef double step = (b-a)/n
+    
+#     for i in range(p+1):
+#         _knots[i]=a
+#         _knots[size-i-1]=b
+#     for i in range(n-1):
+#         for j in range(mult):
+#             _knots[p + 1 + i * mult + j] = a + (i + 1) * step
+#     return KnotVector(p, knots)
 ##################################################################################################
 @cython.cdivision(True)
 @cython.boundscheck(False)
