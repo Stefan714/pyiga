@@ -1461,6 +1461,7 @@ class Multipatch:
             arity = problem.arity
         if args is None:
             args = dict()
+            
         if domain_id is not None:
             domain_id=(domain_id,)
         else:

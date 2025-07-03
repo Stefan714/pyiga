@@ -10,7 +10,8 @@ from libc.stdlib cimport rand, srand
 @cython.boundscheck(False)
 @cython.wraparound(False)
 cpdef np.ndarray[np.int32_t, ndim=1] pyx_doerfler_mark(np.ndarray[np.float64_t ,ndim=1] x_a, int n, double theta, double TOL):
-    cdef int[:] idx = np.argsort(-x_a).astype(np.int32)
+    cdef np.ndarray[np.int32_t, ndim=1] idx_a = np.argsort(-x_a).astype(np.int32)
+    cdef int[:] idx = idx_a
     cdef double[:] x = x_a
     cdef int i, k
     cdef double total=0, S=0
@@ -21,13 +22,13 @@ cpdef np.ndarray[np.int32_t, ndim=1] pyx_doerfler_mark(np.ndarray[np.float64_t ,
     for i in range(n):
         S += x[idx[i]]**2
         if S > theta * total:
-            k = i+1
+            k = i
             while k<n and (fabs((x[idx[i]]-x[idx[k]])/(x[idx[i]]+1e-16)) < TOL):       
                 k+=1
             break
     else: return idx.base
             
-    return idx.base[:(k+1)]
+    return idx_a[:k]
 
 @cython.cdivision(True)
 @cython.boundscheck(False)

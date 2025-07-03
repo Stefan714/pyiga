@@ -112,9 +112,7 @@ class PatchMesh:
         self.outer_boundaries = {0:set()}
         self.domains = {0:set()}
         self.patch_domains = dict()
-        
-        # self.Nodes = {'T0':dict(), 'T1':dict()}
-        # self.Nodes['T1'] = dict()
+        self.L_intfs = {}
 
         if patches:
             if domains:
@@ -137,10 +135,12 @@ class PatchMesh:
             assert conn, 'patch graph is not connected!'
             for (p0, bd0, p1, bd1, (perm, flip)) in conf_interfaces:
                 self.add_interface(p0, bd0, 0, p1, bd1, 0, flip)
+                self.L_intfs[(p0,bd0)]=[(p1,bd1)]
             if interfaces:
                 D={}
                 for (p, b, s),(p1, b1, s1),flip in interfaces:
                     self.add_interface(p, b, s, p1, b1, s1, (flip,))
+                    self.L_intfs[(p0,b0)]=[(p1,bd1)]
                     if (p,b) in D:
                         D[(p,b)][s]=self.boundaries(p1)[0][b1]
                     else:
@@ -375,10 +375,31 @@ class PatchMesh:
         try:
             # is the vertex already contained in the boundary?
             vtx_idx = np.where(np.isclose(self.boundaries(p)[1][b], xi))[0][0]
+            if (p,b) in self.L_intfs:
+                intfs = self.L_intfs[(p,b)]
+                self.L_intfs[(p,b)] = intfs[:vtx_idx]
+                self.L_intfs[(new_p,b)] = intfs[vtx_idx:]
         except IndexError:
-            # otherwise, we need to insert it, split the segments and insert a new T_node (or corner at the boundary of the domain)
+            # otherwise, we need to insert it and split the segments
+            
+            if (p,b,0) in self.interfaces:
+                (p0, b0, s0), flip = self.interfaces[(p,b,0)]
+                if (p0,b0) not in self.L_intfs:
+                    self.L_intfs[(p0,b0)] = [(new_p,b),(p,b)] if flip[0] else [(p,b),(new_p,b)]
+                    del self.L_intfs[(p,b)]
+                else:
+                    for i in range(len(self.L_intfs[(p0,b0)])):
+                        if self.L_intfs[(p0,b0)][i][0]==p:
+                            break
+                    if flip[0]:
+                        self.L_intfs[(p0,b0)].insert(i    , (new_p,b))
+                    else:
+                        self.L_intfs[(p0,b0)].insert(i + 1, (new_p,b))
+            
             seg = self._find_boundary_split_index(p, b, xi, new_vtx)
             self.split_boundary_segment(p, b, seg, new_vtx, xi, new_p)
+            
+                
             return seg + 1  # we want the segment just after the newly inserted vertex
         else:
             return vtx_idx
@@ -461,7 +482,17 @@ class PatchMesh:
             assert False, 'unimplemented'
 
         # move existing interfaces from upper side of old to upper of new patch ###
+        if (p,upper) in self.L_intfs:
+            self.L_intfs[(new_p,upper)]=self.L_intfs[(p,upper)]
+            del self.L_intfs[(p,upper)]
+        else:
+            if (p,upper,0) in self.interfaces:
+                (p0, b0,_),_ = self.interfaces[(p,upper,0)]
+                for i in range(len(self.L_intfs[(p0,b0)])):
+                    p_, b_ = self.L_intfs[(p0,b0)][i]
+                    if p_ == p: self.L_intfs[(p0,b0)][i] = (new_p, b_)
         self._reindex_interfaces(p, upper, range(0, len(bds[upper]) - 1), 0, new_p=new_p)
+
         # reindex existing outer boundary to new patch
         for s in self.outer_boundaries.keys():
             if (p, upper) in self.outer_boundaries[s]:
@@ -477,24 +508,18 @@ class PatchMesh:
         new_bds_par[lower] = [bds_par[upper][0], bds_par[upper][-1]]
         # add interface between the two new patches
         self.add_interface(p, upper, 0, new_p, lower, 0, (False,))
+        self.L_intfs[(p,upper)]=[(new_p,lower)]
 
         for sb, new_vtx in zip(split_boundaries, new_vertices):
             i_new = self.split_patch_boundary(p, sb, split_xi, self.vertices[new_vtx], new_p)
             # split the boundaries of the new patches at this vertex
             new_bd = self.boundaries(p)[0][sb]
             new_bd_par = self.boundaries(p)[1][sb]
-            
-            # print(new_bd)
 
             bds[sb] = list(new_bd[:i_new+1])
             new_bds[sb] = list(new_bd[i_new:])
             bds_par[sb] = list(new_bd_par[:i_new+1])
             new_bds_par[sb] = list(new_bd_par[i_new:])
-
-            if len(new_bds[sb])==1:
-                print(new_bd)
-                print(i_new)
-                print(new_bds[sb])
 
             # change patch index for all interfaces from the split part of the boundary
             self._reindex_interfaces(p, sb, range(i_new, len(new_bd) - 1), -i_new, new_p=new_p)
