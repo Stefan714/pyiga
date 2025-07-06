@@ -36,7 +36,7 @@ def mp_resPois(MP, uh, f=0., a=1., M=(0.,0.), divMaT =0., neu_data={}, **kwargs)
         u_func = geometry.BSplineFunc(kvs, uh_per_patch[p])
         indicator[p] = h**2 * np.sum(assemble.assemble('((f + div(a*grad(uh)))**2 * v) * dx', kvs=kvs0, geo=geo, 
                                                        a=a[MP.mesh.patch_domains[p]], f=f[MP.mesh.patch_domains[p]],uh=u_func,**kwargs))
-    print('Residual contributions took {:.3} seconds.'.format(time.time()-t))
+    #print('Residual contributions took {:.3} seconds.'.format(time.time()-t))
     
     #flux contribution
     t=time.time()
@@ -69,7 +69,7 @@ def mp_resPois(MP, uh, f=0., a=1., M=(0.,0.), divMaT =0., neu_data={}, **kwargs)
             J = np.sum(assemble.assemble('((inner(a * uh_grad + Ma, n) - g)**2 * v ) * ds', kv0 ,geo=geo_b,Ma=M[MP.mesh.patch_domains[p]], a=a[MP.mesh.patch_domains[p]],g=g, uh_grad=uh_grad, **kwargs))
             indicator[p] += h * J
             
-    print('Jump contributions took {:.3} seconds.'.format(time.time()-t))
+    #print('Jump contributions took {:.3} seconds.'.format(time.time()-t))
     return np.sqrt(indicator)
 
 def mp_resPois2(MP, uh, f=0., a=1., M=(0.,0.), divM = 0., neu_data={}, **kwargs):
@@ -101,7 +101,7 @@ def mp_resPois2(MP, uh, f=0., a=1., M=(0.,0.), divM = 0., neu_data={}, **kwargs)
         
         R=h**2*assemble.assemble('(f + div(a*grad(uh)) + divM)**2 * v * dx', kvs0, geo=geo, divM=divM[d], a=a[d], f=f[d], uh=u_func,**kwargs)
         indicator[MP.Z_ofs[p]:MP.Z_ofs[p+1]] = R.ravel()
-    print('Residual contributions took {:.3} seconds.'.format(time.time()-t))
+    #print('Residual contributions took {:.3} seconds.'.format(time.time()-t))
     
     #flux contribution
     t=time.time()
@@ -135,7 +135,7 @@ def mp_resPois2(MP, uh, f=0., a=1., M=(0.,0.), divM = 0., neu_data={}, **kwargs)
             uh_grad = geometry.BSplineFunc(kvs, uh_per_patch[p]).transformed_jacobian(geo).boundary(bdspec)
             J = np.sum(assemble.assemble('(inner(a * uh_grad, n) - g)**2 * v * ds', bkv0 ,geo=geo_b, a=a[d], uh_grad=uh_grad, **kwargs))
             indicator[MP.Z_ofs[p1]+assemble.boundary_dofs(kvs0,bdspec=bdspec, ravel=1)] += h * J
-    print('Jump contributions took {:.3} seconds.'.format(time.time()-t))
+    #print('Jump contributions took {:.3} seconds.'.format(time.time()-t))
     return np.sqrt(indicator)
 
 def ratio(kv,u,s=0):

@@ -1342,7 +1342,7 @@ class Multipatch:
             t=time.time()
             C=[self.computeInterfaceJump(p1, bspline._parse_bdspec(bd1,self.sdim), s1, 
                                          p2, bspline._parse_bdspec(bd2,self.sdim), s2, flip) for ((p1,bd1,s1),(p2,bd2,s2), flip) in self.intfs.copy()]
-            print('setting up constraints took '+str(time.time()-t)+' seconds.')
+            #print('setting up constraints took '+str(time.time()-t)+' seconds.')
             for (p,b,_),(p2,b2,_),_ in self.intfs:
                 if (p,b) not in self.L_intfs:
                     self.L_intfs[(p,b)]=[(p2,b2)]
@@ -1448,7 +1448,7 @@ class Multipatch:
         B = (self.B@self.R_interface.T).tocsr()
         self.Basis = algebra_cy.pyx_compute_basis(B.shape[0], B.shape[1], B, maxiter=10)
         self.Basis = scipy.sparse.hstack([self.R_free.T, self.R_interface.T@self.Basis], format='csc')
-        print("Basis setup took "+str(time.time()-t)+" seconds")
+        #print("Basis setup took "+str(time.time()-t)+" seconds")
         self.P2G = assemble_cy.pyx_right_inverse_C0_Basis(self.Basis.indptr, self.Basis.indices, self.Basis.data, *self.Basis.shape).tocsc()
         
         self.sanity_check()
