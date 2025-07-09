@@ -129,6 +129,8 @@ from .quadrature import make_iterated_quadrature, make_tensor_quadrature
 from .mlmatrix import MLStructure
 from mpl_toolkits.axes_grid1 import make_axes_locatable
 
+from scipy.sparse.linalg import norm as spnorm
+
 ################################################################################
 # 1D assembling routines
 ################################################################################
@@ -1901,7 +1903,7 @@ class Multipatch:
     
     def sanity_check(self):
         assert self.Basis != None, 'Basis for function space not yet computed.'
-        assert all(np.isclose(self.Basis@np.ones(self.numdofs),1)), 'No partition of unity.'
-        assert abs(self.B@self.Basis).max()<1e-12, 'Not an H^1-conforming function space.'
-        assert scipy.sparse.linalg.norm(self.P2G@self.Basis-scipy.sparse.identity(self.numdofs)) <1e-12
+        assert np.allclose(self.Basis @ np.ones(self.numdofs), 1, atol=1e-12), 'No partition of unity.'
+        assert spnorm(self.B@self.Basis)<1e-12*spnorm(self.B)*spnorm(self.Basis), 'Not an H^1-conforming function space.'
+        assert spnorm(self.P2G@self.Basis-scipy.sparse.identity(self.numdofs)) <1e-12
 

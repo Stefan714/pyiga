@@ -436,8 +436,13 @@ class PatchMesh:
         #split_idx = kv.findspan(split_xi)
         split_xi_mult = sum(np.isclose(kv.kv,split_xi))
         #print(kv.kv,split_idx,split_xi,kv.kv[:(split_idx-split_xi_mult+1)])
-        new_knots1 = np.concatenate((kv.kv[:(split_idx-split_xi_mult+1)], (kv.p+1) * (split_xi,)))
-        new_knots2 = np.concatenate(((kv.p+1) * (split_xi,), kv.kv[(split_idx+1):]))
+
+        extra_mult = max(0, kv.p + 1 - split_xi_mult)
+        split_xi_knots = np.full(extra_mult+split_xi_mult, split_xi)
+
+        new_knots1 = np.concatenate((kv.kv[:split_idx], split_xi_knots))
+        new_knots2 = np.concatenate((split_xi_knots, kv.kv[(split_idx + split_xi_mult):]))
+        
         new_kvs = tuple([bspline.KnotVector(np.concatenate((new_knots1[:-(kv.p+1)],new_knots2[1:])),kv.p) if d==axis else kvs[d] for d in range(dim)])
             
         # create new kvs and geo for first patch
