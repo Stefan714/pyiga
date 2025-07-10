@@ -1632,7 +1632,7 @@ class Multipatch:
 #         P[np.abs(P) < 1e-15] = 0.0
 #         return scipy.sparse.csr_matrix(P) 
         
-    def h_refine(self, h_ref=None, mult=1, return_P = False, ref="rs"):
+    def h_refine(self, h_ref=None, mult=1, return_P = False, ref="rs", decoupled=False):
         """Refines the Mesh by splitting patches
         
         The dictionary `h_ref` specifies which patches (dict keys) are to be split 
@@ -1692,11 +1692,14 @@ class Multipatch:
                 I_id = np.concatenate([np.arange(self.N[p]) + self.N_ofs[p] for p in range(num_p_old) if p not in refined_patches])
                 J_id = np.concatenate([np.arange(self.N[p]) + N_ofs_old[p] for p in range(num_p_old) if p not in refined_patches])
                 P_loc = P_loc +  scipy.sparse.coo_matrix((data_id,(I_id, J_id)),(sum(self.N),sum(N_old)))
-            P = self.P2G@P_loc@B_old
+            if decoupled:
+                P=P_loc
+            else:
+                P = self.P2G@P_loc@B_old
             print("Prolongation took "+str(time.time()-t)+" seconds")
             return P
         
-    def p_refine(self, p_inc=1, return_P = False):
+    def p_refine(self, p_inc=1, return_P = False, decoupled=False):
         N_old=self.N
         B_old = self.Basis
         N_ofs_old = self.N_ofs
@@ -1714,7 +1717,10 @@ class Multipatch:
             I = np.concatenate([P_loc[p].row + self.N_ofs[p] for p in range(self.numpatches)])
             J = np.concatenate([P_loc[p].col + N_ofs_old[p] for p in range(self.numpatches)])
             P_loc = scipy.sparse.coo_matrix((data,(I, J)),(sum(self.N),sum(N_old)))
-            P = self.P2G@P_loc@B_old
+            if decoupled:
+                P=P_loc
+            else:
+                P = self.P2G@P_loc@B_old
             return P
         
     def get_nodes(self, dir_boundary=False):
