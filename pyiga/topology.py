@@ -105,7 +105,7 @@ def edges(corners):
 #
 
 class PatchMesh:
-    def __init__(self, patches = None, interfaces = None, domains=None):
+    def __init__(self, patches = None, interfaces = None, domains=None, autodetect=True):
         self.vertices = []
         self.patches = []
         self.interfaces = dict()
@@ -131,16 +131,17 @@ class PatchMesh:
                 self.add_patch(patch)
                 
             # add interfaces between patches
-            conn, conf_interfaces = assemble.detect_interfaces(patches)
-            assert conn, 'patch graph is not connected!'
-            for (p0, bd0, p1, bd1, (perm, flip)) in conf_interfaces:
-                self.add_interface(p0, bd0, 0, p1, bd1, 0, flip)
-                self.L_intfs[(p0,bd0)]=[(p1,bd1)]
+            if autodetect:
+                conn, conf_interfaces = assemble.detect_interfaces(patches)
+                assert conn, 'patch graph is not connected!'
+                for (p0, bd0, p1, bd1, (perm, flip)) in conf_interfaces:
+                    self.add_interface(p0, bd0, 0, p1, bd1, 0, flip)
+                    self.L_intfs[(p0,bd0)]=[(p1,bd1)]
             if interfaces:
                 D={}
                 for (p, b, s),(p1, b1, s1),flip in interfaces:
                     self.add_interface(p, b, s, p1, b1, s1, (flip,))
-                    self.L_intfs[(p0,b0)]=[(p1,bd1)]
+                    #self.L_intfs[(p0,b0)]=[(p1,bd1)]
                     if (p,b) in D:
                         D[(p,b)][s]=self.boundaries(p1)[0][b1]
                     else:
@@ -163,6 +164,18 @@ class PatchMesh:
                         self.outer_boundaries[0].add((p,b))
                                 
             #self.sanity_check()
+
+    def __copy__(self):
+        import copy
+        M = PatchMesh()
+        M.vertices = [v.copy() for v in self.vertices]  # list of numpy arrays or lists
+        M.patches = copy.deepcopy(self.patches)         # includes kvs, geo, boundaries
+        M.interfaces = self.interfaces.copy()
+        M.L_intfs = self.L_intfs.copy()
+        M.domains = {k: v.copy() for k, v in self.domains.items()}
+        M.patch_domains = self.patch_domains.copy()
+        M.outer_boundaries = {k: v.copy() for k, v in self.outer_boundaries.items()}
+        return M
 
     @property
     def numpatches(self):
