@@ -1317,68 +1317,64 @@ class Multipatch:
             print('unknown mesh object.')
             
         self.mesh = M
-        #self.cython=cython
-            
-        # number of tensor product dofs per patch
         self.n = [tuple([kv.numdofs for kv in kvs]) for ((kvs,_),_) in self.mesh.patches]
         self.N = [np.prod(n) for n in self.n]
-        self.Z = [bspline.numspans(kvs) for ((kvs,_),_) in self.mesh.patches]
-        self.Z_ofs = np.concatenate(([0], np.cumsum(self.Z)))
-        # offset to the dofs of the i-th patch
         self.N_ofs = np.concatenate(([0], np.cumsum(self.N)))
+        
+        self.C = [bspline.numspans(kvs) for ((kvs,_),_) in self.mesh.patches]
+        self.C_ofs = np.concatenate(([0], np.cumsum(self.C)))
+
+        self.coupled=False
 
         # a list of interfaces (patch1, boundary dofs1, patch2, boundary dofs2)
         self.intfs = set()
-        self.L_intfs = {}
         
-        self.B=scipy.sparse.csr_matrix((0,self.N_ofs[-1]))
+        self.B = scipy.sparse.csr_matrix((0,self.N_ofs[-1]))
         self.global_dir_idx = np.array([])
 
-        if automatch:
-            interfaces = self.mesh.interfaces
+        interfaces = self.mesh.interfaces
             
-            for ((p1,bd1,s1),((p2,bd2,s2),flip)) in interfaces.items():
-                if ((p2,bd2,s2),(p1,bd1,s1),flip) not in self.intfs:
-                    self.intfs.add(((p1,bd1,s1),(p2,bd2,s2),flip))
-        
+        for ((p1,bd1,s1),((p2,bd2,s2),flip)) in interfaces.items():
+            if ((p2,bd2,s2),(p1,bd1,s1),flip) not in self.intfs:
+                self.intfs.add(((p1,bd1,s1),(p2,bd2,s2),flip))
+
+        if automatch:
             t=time.time()
-            C=[self.computeInterfaceJump(p1, bspline._parse_bdspec(bd1,self.sdim), s1, 
+            B=[self.computeInterfaceJump(p1, bspline._parse_bdspec(bd1,self.sdim), s1, 
                                          p2, bspline._parse_bdspec(bd2,self.sdim), s2, flip) for ((p1,bd1,s1),(p2,bd2,s2), flip) in self.intfs.copy()]
-            #print('setting up constraints took '+str(time.time()-t)+' seconds.')
-            for (p,b,_),(p2,b2,_),_ in self.intfs:
-                if (p,b) not in self.L_intfs:
-                    self.L_intfs[(p,b)]=[(p2,b2)]
-                else:
-                    self.L_intfs[(p,b)].append((p2,b2))
-        
-            if len(C)!=0:
-                self.B = scipy.sparse.vstack(C)
+            print('setting up constraints took {:3} seconds.'.format(time.time()-t))
+
+            if len(B)!=0:
+                self.B = scipy.sparse.vstack(B)
             self.finalize()
 
     @property
-    def numpatches(self):
+    def nPatches(self):
         """Number of patches in the multipatch structure."""
-        return len(self.mesh.patches)
+        return self.mesh.numpatches
 
     @property
-    def numdofs(self):
+    def nDofs(self):
         """Number of dofs after eliminating shared dofs.
 
         May only be called after :func:`finalize`.
         """
-        return self.Basis.shape[1]
+        if self.coupled:
+            return self.Basis.shape[1]
+        else:
+            raise ValueError("Patches are not coupled yet. Finalize or call nLocalDofs instead")
     
     @property
-    def numloc_dofs(self):
+    def nLocDofs(self):
         return self.N_ofs[-1]
     
     @property
-    def numcells(self):
+    def nCells(self):
         """Number of cells throughout the Multipatch structure."""
         return 
     
-    def reset(self):
-        self.__init__(M=self.mesh, automatch=True)
+    def reset(self, automatch=True):
+        self.__init__(M=self.mesh, automatch=automatch)
 
     def computeInterfaceJump(self, p1, bdspec1, s1, p2, bdspec2, s2, flip=None):
         """Join the dofs lying along boundary `bdspec1` of patch `p1` with
@@ -1432,7 +1428,7 @@ class Multipatch:
         data = np.concatenate([P.data, np.ones(len(dofs2))])
         I = np.concatenate([P.row, np.arange(len(dofs2))])
         J = np.concatenate([dofs1[P.col] + self.N_ofs[p1],dofs2 + self.N_ofs[p2]])
-        return scipy.sparse.csr_matrix((data,(I,J)),(len(dofs2), self.numloc_dofs))
+        return scipy.sparse.csr_matrix((data,(I,J)),(len(dofs2), self.nLocDofs))
         
     def finalize(self):
         """After all interface constraints have been declared using
@@ -1446,19 +1442,25 @@ class Multipatch:
 
         self.R_interface = scipy.sparse.coo_matrix((np.ones(len(I)),(np.arange(len(I)),I)),shape=(len(I),self.N_ofs[-1]))
         self.R_free      = scipy.sparse.coo_matrix((np.ones(len(F)),(np.arange(len(F)),F)),shape=(len(F),self.N_ofs[-1]))
-        
+
+        t=time.time()
         B = (self.B@self.R_interface.T).tocsr()
         self.Basis = algebra_cy.pyx_compute_basis(B.shape[0], B.shape[1], B, maxiter=10)
         self.Basis = scipy.sparse.hstack([self.R_free.T, self.R_interface.T@self.Basis], format='csc')
-        #print("Basis setup took "+str(time.time()-t)+" seconds")
+        print("Basis setup took {:3} seconds".format(time.time()-t))
+        self.coupled = True
         self.P2G = assemble_cy.pyx_right_inverse_C0_Basis(self.Basis.indptr, self.Basis.indices, self.Basis.data, *self.Basis.shape).tocsc()
         
         self.sanity_check()
         
     def assemble_volume(self, problem, arity=1, domain_id=None, args=None, bfuns=None,
             symmetric=False, format='csr', layout='blocked', decoupled=False, **kwargs):
-        n = self.numdofs
-        X=self.Basis
+        decoupled = decoupled or not self.coupled
+        if not decoupled:
+            X = self.Basis
+        else:
+            X = scipy.sparse.identity(self.N_ofs[-1], format="csr")
+            
         if isinstance(problem, vform.VForm):
             arity = problem.arity
         if args is None:
@@ -1481,14 +1483,11 @@ class Multipatch:
                             symmetric=symmetric, format=format, layout=layout,
                             **kwargs))
                     dofs.append(np.arange(self.N_ofs[p],self.N_ofs[p+1]))
-            X = self.Basis[np.concatenate(dofs),:]
-            if decoupled:
-                return scipy.sparse.block_diag(A)
-            else:
-                return X.T@scipy.sparse.block_diag(A)@X
+            X = X[np.concatenate(dofs),:]
+            return X.T@scipy.sparse.block_diag(A)@X
         else:
             args['arity']=1
-            F=np.zeros(self.numloc_dofs)
+            F=np.zeros(self.nLocDofs)
             for d_idx in domain_id:
                 for p in self.mesh.domains[d_idx]:
                     kvs, geo = self.mesh.patches[p][0]
@@ -1500,51 +1499,15 @@ class Multipatch:
                 return F
             else:
                 return X.T@F
-        
-    def assemble_system(self, problem, rhs, arity=1, domain_id=None, args=None, bfuns=None,
-            symmetric=False, format='csr', layout='blocked', **kwargs):
-        """Assemble both the system matrix and the right-hand side vector
-        for a variational problem over the multipatch geometry.
-
-        Here `problem` represents a bilinear form and `rhs` a linear functional.
-        See :func:`assemble` for the precise meaning of the arguments.
-
-        Returns:
-            A pair `(A, b)` consisting of the sparse system matrix and the
-            right-hand side vector.
-        """
-        n = self.numdofs
-        X = self.Basis
-        
-        A = []
-        b = []
-        if args is None:
-            args = dict()
-        if domain_id is not None:
-            domain_id={domain_id}
-        else:
-            domain_id=set(self.mesh.domains)
-            
-        for p in range(self.numpatches):
-            kvs, geo = self.mesh.patches[p][0]
-            args.update(geo=geo)
-            # TODO: vector-valued problems
-            A.append(assemble(problem, kvs, args=args, bfuns=bfuns,
-                    symmetric=symmetric, format=format, layout=layout,
-                    **kwargs))
-    
-            b.append(assemble(rhs, kvs, args=args, bfuns=bfuns,
-                    symmetric=symmetric, format=format, layout=layout,
-                    **kwargs).ravel())
-    
-        A = X.T @ scipy.sparse.block_diag(A) @ X
-        b = X.T @ np.concatenate(b)
-            
-        return A, b
     
     def assemble_surface(self, problem, arity=1, boundary_idx=0, args=None, bfuns=None,
             symmetric=False, format='csr', layout='blocked', **kwargs):
-        X = self.Basis
+        decoupled = decoupled or not self.coupled
+        if not decoupled:
+            X = self.Basis
+        else:
+            X = scipy.sparse.identity(self.N_ofs[-1], format="csr")
+            
         if args is None:
             args = dict()
         if arity==2:
@@ -1558,12 +1521,10 @@ class Multipatch:
                 R.append(assemble(problem, kvs, args=args, bfuns=bfuns,
                         symmetric=symmetric, format='coo', layout=layout,
                         **kwargs, boundary=b))
-            X=self.Basis[np.concatenate(bdofs),:]
-
-            
+            X=X[np.concatenate(bdofs),:]
             return X.T @ scipy.sparse.block_diag(R) @ X
         else:
-            N=np.zeros(self.numloc_dofs)
+            N=np.zeros(self.nLocDofs)
             for (p,b) in self.mesh.outer_boundaries[boundary_idx]:
                 kvs, geo = self.mesh.patches[p][0]
                 bdspec=b
@@ -1646,34 +1607,38 @@ class Multipatch:
         """
         if isinstance(h_ref, dict):
             if len(h_ref)>0:
-                assert max(h_ref.keys())<self.numpatches and min(h_ref.keys())>=0, "patch index out of bounds."
+                assert max(h_ref.keys())<self.nPatches and min(h_ref.keys())>=0, "patch index out of bounds."
         elif isinstance(h_ref,int):
             #assert patches >=0 and patches < self.sdim, "dimension error."
-            h_ref = {p:h_ref for p in range(self.numpatches)}
+            h_ref = {p:h_ref for p in range(self.nPatches)}
         elif isinstance(h_ref, (list, set, np.ndarray)):
-            assert max(h_ref)<self.numpatches and min(h_ref)>=0, "patch index out of bounds."
+            assert max(h_ref)<self.nPatches and min(h_ref)>=0, "patch index out of bounds."
             h_ref = {p:None for p in patches}
         elif h_ref==None or h_ref=='q':
-            h_ref = {p:h_ref for p in range(self.numpatches)}
+            h_ref = {p:h_ref for p in range(self.nPatches)}
         else:
             assert 0, "unknown input type"
         # if isinstance(p_ref,int):
-        #     p_ref = {p:p_ref for p in range(self.numpatches)}
+        #     p_ref = {p:p_ref for p in range(self.nPatches)}
+
+        decoupled = decoupled or not self.coupled
+
+        if not decoupled:
+            B_old = self.Basis
         
-        num_p_old = self.numpatches
+        num_p_old = self.nPatches
         N_old=self.N
-        B_old = self.Basis
         N_ofs_old = self.N_ofs
         new_patches = dict()
         new_kvs_ = dict()
-        P_loc=dict()
+        P_loc = dict()
         
         kvs_old = self.mesh.kvs
         t=time.time()
         new_patches=self.mesh.h_refine(h_ref, ref=ref)
         
         print("Refinement took " + str(time.time()-t) + " seconds for "+str(len(h_ref))+' patches.')
-        self.reset()
+        self.reset(automatch=False)
         
         if return_P:
             t = time.time()
@@ -1695,31 +1660,35 @@ class Multipatch:
             if decoupled:
                 P=P_loc
             else:
+                self.reset() ### needed to compute new basis and generate the new P2G matrix
                 P = self.P2G@P_loc@B_old
             print("Prolongation took "+str(time.time()-t)+" seconds")
             return P
         
     def p_refine(self, p_inc=1, return_P = False, decoupled=False):
+        decoupled = decoulped or not self.coupled
+        if not decoupled:
+            B_old = self.Basis
         N_old=self.N
-        B_old = self.Basis
         N_ofs_old = self.N_ofs
         kvs_old = self.mesh.kvs
         P_loc=dict()
         
         self.mesh.p_refine(p_inc)
-        self.reset()
+        self.reset(automatch=False)
         
         if return_P:
             t = time.time()
-            for p in range(self.numpatches):
+            for p in range(self.nPatches):
                 P_loc[p]= scipy.sparse.coo_matrix(bspline.prolongation_tp(kvs_old[p],self.mesh.kvs[p]))
-            data=np.concatenate([P_loc[p].data for p in range(self.numpatches)])
-            I = np.concatenate([P_loc[p].row + self.N_ofs[p] for p in range(self.numpatches)])
-            J = np.concatenate([P_loc[p].col + N_ofs_old[p] for p in range(self.numpatches)])
+            data=np.concatenate([P_loc[p].data for p in range(self.nPatches)])
+            I = np.concatenate([P_loc[p].row + self.N_ofs[p] for p in range(self.nPatches)])
+            J = np.concatenate([P_loc[p].col + N_ofs_old[p] for p in range(self.nPatches)])
             P_loc = scipy.sparse.coo_matrix((data,(I, J)),(sum(self.N),sum(N_old)))
             if decoupled:
                 P=P_loc
             else:
+                self.reset() ### needed to compute new basis and generate the new P2G matrix
                 P = self.P2G@P_loc@B_old
             return P
         
@@ -1809,7 +1778,7 @@ class Multipatch:
         """
         B = self.Basis[ids + self.N_ofs[p]]
         feasible = (B.indptr[1:] - B.indptr[:-1]) == 1
-        idx = B[np.arange(len(ids))[feasible]] @ np.arange(self.numdofs)
+        idx = B[np.arange(len(ids))[feasible]] @ np.arange(self.nDofs)
 
         return idx, feasible
     
@@ -1899,7 +1868,7 @@ class Multipatch:
         return solvers.make_solver(Mh, spd=True).dot(u_rhs)
         
     def function(self, u):
-        if len(u)==self.numdofs:
+        if len(u)==self.nDofs:
             u_loc=self.Basis@u
         elif len(u)==self.N_ofs[-1]:
             u_loc = u
@@ -1909,7 +1878,7 @@ class Multipatch:
     
     def sanity_check(self):
         assert self.Basis != None, 'Basis for function space not yet computed.'
-        assert np.allclose(self.Basis @ np.ones(self.numdofs), 1, atol=1e-12), 'No partition of unity.'
+        assert np.allclose(self.Basis @ np.ones(self.nDofs), 1, atol=1e-12), 'No partition of unity.'
         assert spnorm(self.B@self.Basis)<1e-12*spnorm(self.B)*spnorm(self.Basis), 'Not an H^1-conforming function space.'
-        assert spnorm(self.P2G@self.Basis-scipy.sparse.identity(self.numdofs)) <1e-12
+        assert spnorm(self.P2G@self.Basis-scipy.sparse.identity(self.nDofs)) <1e-12
 

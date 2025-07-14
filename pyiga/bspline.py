@@ -241,7 +241,7 @@ class KnotVector:
     
     def p_refine(self, p_inc):
         kvnew = np.sort(np.concatenate((self.kv, np.repeat(self.mesh,p_inc))))
-        return 
+        return KnotVector(kvnew, self.p+p_inc)
 
     def meshsize_avg(self):
         """Compute average length of the knot spans of this knot vector"""

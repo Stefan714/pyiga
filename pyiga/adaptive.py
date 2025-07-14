@@ -17,9 +17,9 @@ def mp_resPois(MP, uh, f=0., a=1., M=(0.,0.), divMaT =0., neu_data={}, **kwargs)
         f={d:f for d in MP.mesh.domains}
     n = MP.mesh.numpatches
     indicator = np.zeros(n)
-    if len(uh)==MP.numdofs:
+    if MP.coupled and len(uh)==MP.nDofs:
         uh_loc = MP.Basis@uh
-    elif len(uh)==MP.N_ofs[-1]:
+    if len(uh)==MP.N_ofs[-1]:
         uh_loc = uh
     else:
         raise Exception("Dimension of solution vector is incompatible!")
@@ -84,7 +84,7 @@ def mp_resPois2(MP, uh, f=0., a=1., M=(0.,0.), divM = 0., neu_data={}, **kwargs)
         
     n = MP.mesh.numpatches
     indicator = np.zeros(MP.Z_ofs[-1])
-    if len(uh)==MP.numdofs:
+    if len(uh)==MP.nDofs:
         uh_loc = MP.Basis@uh
     elif len(uh)==MP.N_ofs[-1]:
         uh_loc = uh
