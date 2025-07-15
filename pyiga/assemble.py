@@ -1666,7 +1666,7 @@ class Multipatch:
             return P
         
     def p_refine(self, p_inc=1, return_P = False, decoupled=False):
-        decoupled = decoulped or not self.coupled
+        decoupled = decoupled or not self.coupled
         if not decoupled:
             B_old = self.Basis
         N_old=self.N
