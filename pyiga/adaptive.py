@@ -10,9 +10,9 @@ from pyiga import utils
 ################################################################################
 # Error Estimation
 ################################################################################
-def mp_resPois(MP, uh, f=0., a=1., M=(0.,0.), divMaT =0., neu_data={}, **kwargs):
-    if isinstance(a,(int,float)):
-        a={d:a for d in MP.mesh.domains}
+def mp_resPois(MP, uh, f=0., nu=1., M=(0.,0.), divMaT =0., neu_data={}, **kwargs):
+    if isinstance(nu,(int,float)):
+        nu={d:nu for d in MP.mesh.domains}
     if isinstance(f,(int,float)):
         f={d:f for d in MP.mesh.domains}
     n = MP.mesh.numpatches
@@ -34,8 +34,8 @@ def mp_resPois(MP, uh, f=0., a=1., M=(0.,0.), divMaT =0., neu_data={}, **kwargs)
         uh_per_patch[p] = uh_loc[np.arange(MP.N[p]) + MP.N_ofs[p]]   #cache Spline Function on patch p
         kvs0 = tuple([bspline.KnotVector(kv.mesh, 0) for kv in kvs])
         u_func = geometry.BSplineFunc(kvs, uh_per_patch[p])
-        indicator[p] = h**2 * np.sum(assemble.assemble('((f + div(a*grad(uh)))**2 * v) * dx', kvs=kvs0, geo=geo, 
-                                                       a=a[MP.mesh.patch_domains[p]], f=f[MP.mesh.patch_domains[p]],uh=u_func,**kwargs))
+        indicator[p] = h**2 * np.sum(assemble.assemble('((f + div(nu*grad(uh)))**2 * v) * dx', kvs=kvs0, geo=geo, 
+                                                       nu=nu[MP.mesh.patch_domains[p]], f=f[MP.mesh.patch_domains[p]],uh=u_func,**kwargs))
     #print('Residual contributions took {:.3} seconds.'.format(time.time()-t))
     
     #flux contribution
@@ -50,8 +50,8 @@ def mp_resPois(MP, uh, f=0., a=1., M=(0.,0.), divMaT =0., neu_data={}, **kwargs)
 
         uh1_grad = geometry.BSplineFunc(kvs1, uh_loc[MP.N_ofs[p1]:MP.N_ofs[p1+1]]).transformed_jacobian(geo1).boundary(bdspec1, flip=flip) 
         uh2_grad = geometry.BSplineFunc(kvs2, uh_loc[MP.N_ofs[p2]:MP.N_ofs[p2+1]]).transformed_jacobian(geo2).boundary(bdspec2)            
-        J = np.sum(assemble.assemble('((inner((a1 * uh1_grad + Ma1) - (a2 * uh2_grad + Ma2), n) )**2 * v ) * ds', kv0, geo=geo, 
-                                     a1=a[MP.mesh.patch_domains[p1]], a2=a[MP.mesh.patch_domains[p2]], uh1_grad=uh1_grad, uh2_grad=uh2_grad,
+        J = np.sum(assemble.assemble('((inner((nu1 * uh1_grad + Ma1) - (nu2 * uh2_grad + Ma2), n) )**2 * v ) * ds', kv0, geo=geo, 
+                                     nu1=nu[MP.mesh.patch_domains[p1]], nu2=nu[MP.mesh.patch_domains[p2]], uh1_grad=uh1_grad, uh2_grad=uh2_grad,
                                      Ma1=M[MP.mesh.patch_domains[p1]], Ma2=M[MP.mesh.patch_domains[p2]], **kwargs))
         indicator[p1] += 0.5 * h * J
         indicator[p2] += 0.5 * h * J
@@ -66,7 +66,8 @@ def mp_resPois(MP, uh, f=0., a=1., M=(0.,0.), divMaT =0., neu_data={}, **kwargs)
             kv0 = tuple([bspline.KnotVector(kv.mesh, 0) for kv in bkv])
             geo_b = geo.boundary(bdspec)
             uh_grad = geometry.BSplineFunc(kvs, uh_per_patch[p]).transformed_jacobian(geo).boundary(bdspec)
-            J = np.sum(assemble.assemble('((inner(a * uh_grad + Ma, n) - g)**2 * v ) * ds', kv0 ,geo=geo_b,Ma=M[MP.mesh.patch_domains[p]], a=a[MP.mesh.patch_domains[p]],g=g, uh_grad=uh_grad, **kwargs))
+            J = np.sum(assemble.assemble('((inner(nu * uh_grad + Ma, n) - g)**2 * v ) * ds', kv0 ,geo=geo_b,Ma=M[MP.mesh.patch_domains[p]],
+                                         nu=nu[MP.mesh.patch_domains[p]],g=g, uh_grad=uh_grad, **kwargs))
             indicator[p] += h * J
             
     #print('Jump contributions took {:.3} seconds.'.format(time.time()-t))
